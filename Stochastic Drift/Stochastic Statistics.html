@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stochastic Drift - Telemetry Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;700&family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --bg-dark: #02030a;
+            --bg-panel: rgba(6, 8, 32, 0.6);
+            --border-color: rgba(0, 243, 255, 0.2);
+            --accent-green: #7fff8c;
+            --accent-cyan: #00f3ff;
+            --accent-red: #ff3366;
+            --accent-gold: #ffd700;
+            --text-main: #ffffff;
+            --text-dim: rgba(255, 255, 255, 0.5);
+            --font-display: 'Orbitron', sans-serif;
+            --font-ui: 'Rajdhani', sans-serif;
+            --font-mono: 'Share Tech Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: var(--font-ui);
+            color: var(--text-main);
+            user-select: none;
+        }
+
+        /* --- BACKGROUND VFX --- */
+        #noise-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 0; opacity: 0.04;
+            background: url('data:image/svg+xml;utf8,%3Csvg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"%3E%3Cfilter id="noiseFilter"%3E%3CfeTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch"/%3E%3C/filter%3E%3Crect width="100%25" height="100%25" filter="url(%23noiseFilter)"/%3E%3C/svg%3E');
+        }
+
+        .perspective-grid {
+            position: absolute; bottom: -50%; left: -50%; width: 200%; height: 150%;
+            background-image: linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px);
+            background-size: 60px 60px;
+            transform: perspective(800px) rotateX(70deg);
+            animation: gridMove 10s linear infinite;
+            z-index: 1;
+        }
+
+        @keyframes gridMove {
+            0% { transform: perspective(800px) rotateX(70deg) translateY(0); }
+            100% { transform: perspective(800px) rotateX(70deg) translateY(60px); }
+        }
+
+        /* --- LAYOUT --- */
+        .dashboard-container {
+            position: relative; z-index: 10;
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            grid-template-rows: 80px 1fr 1fr;
+            grid-template-areas: 
+                "header header header"
+                "summary chart growth"
+                "summary distribution growth";
+            width: 100vw; height: 100vh;
+            padding: 30px; gap: 20px;
+            backdrop-filter: blur(4px);
+        }
+
+        /* --- HEADER --- */
+        .header {
+            grid-area: header;
+            display: flex; justify-content: space-between; align-items: flex-end;
+            border-bottom: 1px solid var(--border-color); padding-bottom: 10px;
+        }
+        .header-title h1 { font-family: var(--font-display); font-size: 2.5rem; color: #fff; text-shadow: 0 0 15px var(--accent-cyan); letter-spacing: 0.1em; }
+        .header-title h2 { font-size: 1rem; color: var(--accent-green); letter-spacing: 0.4em; font-weight: normal; margin-top: -5px; }
+        .header-meta { text-align: right; font-family: var(--font-mono); font-size: 0.9rem; color: var(--accent-cyan); }
+        .status-dot { display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 8px var(--accent-green); margin-right: 5px; animation: blink 2s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        
+        .btn-return { background: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan); padding: 8px 15px; font-family: var(--font-display); font-size: 0.9rem; cursor: pointer; transition: 0.3s; letter-spacing: 0.1em; margin-top: 10px; text-transform: uppercase;}
+        .btn-return:hover { background: rgba(0, 243, 255, 0.1); box-shadow: 0 0 15px var(--accent-cyan); color: #fff; }
+
+        /* --- PANELS --- */
+        .panel {
+            background: var(--bg-panel); border: 1px solid var(--border-color);
+            border-radius: 4px; padding: 20px; display: flex; flex-direction: column;
+            position: relative; overflow: hidden;
+            box-shadow: inset 0 0 30px rgba(0, 243, 255, 0.02), 0 5px 15px rgba(0,0,0,0.5);
+        }
+        .panel::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+            opacity: 0.5;
+        }
+        .panel-title {
+            font-family: var(--font-display); font-size: 1rem; color: var(--text-dim);
+            text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 20px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+
+        /* --- SUMMARY STATS (LEFT) --- */
+        .summary { grid-area: summary; gap: 15px; overflow-y: auto; }
+        .stat-card {
+            background: rgba(0,0,0,0.4); border-left: 3px solid var(--accent-cyan);
+            padding: 15px; transition: 0.3s;
+        }
+        .stat-card:hover { background: rgba(0,243,255,0.05); border-color: var(--accent-green); box-shadow: 0 0 15px rgba(127,255,140,0.1); }
+        .stat-label { font-size: 0.85rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; }
+        .stat-value { font-family: var(--font-mono); font-size: 1.8rem; color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); margin-top: 5px; }
+        .stat-card.warning { border-color: var(--accent-red); }
+        .stat-card.warning .stat-value { color: var(--accent-red); text-shadow: 0 0 10px var(--accent-red); }
+
+        /* --- MAIN CHART (CENTER TOP) --- */
+        .chart { grid-area: chart; }
+        .chart-wrapper { flex-grow: 1; position: relative; width: 100%; height: 100%; }
+        #volatility-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .chart-overlay { position: absolute; top: 10px; right: 10px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-cyan); text-align: right;}
+
+        /* --- DRIFT DISTRIBUTION (CENTER BOTTOM) --- */
+        .distribution { grid-area: distribution; }
+        .dist-container { display: flex; align-items: flex-end; justify-content: space-between; height: 100%; padding-top: 20px; gap: 5px; }
+        .dist-bar-group { display: flex; flex-direction: column; align-items: center; flex: 1; }
+        .dist-bar {
+            width: 100%; background: rgba(0,243,255,0.2); border-top: 2px solid var(--accent-cyan);
+            transition: height 1s cubic-bezier(0.1, 0.9, 0.2, 1); height: 0%;
+            position: relative;
+        }
+        .dist-bar:hover { background: rgba(127,255,140,0.4); border-color: var(--accent-green); box-shadow: 0 0 15px var(--accent-green); }
+        .dist-label { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); margin-top: 10px; }
+        .dist-bar-group.center .dist-bar { background: rgba(127,255,140,0.2); border-color: var(--accent-green); }
+
+        /* --- MATHEMATICAL GROWTH (RIGHT) --- */
+        .growth { grid-area: growth; }
+        .node-list { display: flex; flex-direction: column; gap: 20px; flex-grow: 1; overflow-y: auto; padding-right: 10px; }
+        .node-item { display: flex; align-items: center; gap: 15px; }
+        
+        /* Radial Gauge SVG */
+        .radial-gauge { width: 50px; height: 50px; flex-shrink: 0; }
+        .gauge-bg { fill: none; stroke: rgba(255,255,255,0.05); stroke-width: 3; }
+        .gauge-progress { fill: none; stroke: var(--accent-cyan); stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray 1.5s ease-out; }
+        .gauge-text { fill: #fff; font-family: var(--font-mono); font-size: 10px; text-anchor: middle; dominant-baseline: middle; }
+        .node-item.complete .gauge-progress { stroke: var(--accent-green); filter: drop-shadow(0 0 3px var(--accent-green)); }
+        
+        .node-info { flex-grow: 1; }
+        .node-name { font-family: var(--font-display); font-size: 1rem; color: #fff; }
+        .node-desc { font-size: 0.75rem; color: var(--text-dim); margin-top: 3px; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,243,255,0.3); }
+
+    </style>
+</head>
+<body>
+
+    <div id="noise-overlay"></div>
+    <div class="perspective-grid"></div>
+
+    <div class="dashboard-container">
+        
+        <header class="header">
+            <div class="header-title">
+                <h1>TELEMETRY</h1>
+                <h2>STOCHASTIC DRIFT // ANALYTICS</h2>
+            </div>
+            <div class="header-meta">
+                <div><span class="status-dot"></span> LIVE DATA LINK</div>
+                <div style="color: var(--text-dim); margin-top: 5px;">SESSION ID: <span id="session-id" style="color:#fff;">0x7A9F3B</span></div>
+                <button class="btn-return" onclick="window.location.href='index Sde.html'">Return to Terminal</button>
+            </div>
+        </header>
+
+        <section class="panel summary">
+            <div class="panel-title">Aggregate Metrics</div>
+            
+            <div class="stat-card">
+                <div class="stat-label">Total Survival Time</div>
+                <div class="stat-value" id="stat-time" data-val="0" data-format="time">00:00:00</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Distance Traveled</div>
+                <div class="stat-value" id="stat-dist" data-val="0" data-format="num">0 m</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Longest Run</div>
+                <div class="stat-value" id="stat-max-dist" data-val="0" data-format="num">0 m</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Avg. Volatility Exposure</div>
+                <div class="stat-value" id="stat-vol" data-val="0" data-format="dec">0.00 σ</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Knowledge Nodes Available</div>
+                <div class="stat-value" id="stat-nodes" data-val="0" data-format="num">0</div>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-label">Anomalies Defeated</div>
+                <div class="stat-value" id="stat-bosses" data-val="0" data-format="num">0</div>
+            </div>
+        </section>
+
+        <section class="panel chart">
+            <div class="panel-title">Volatility Exposure vs. Survival <span>[GBM SIMULATION]</span></div>
+            <div class="chart-wrapper">
+                <canvas id="volatility-canvas"></canvas>
+                <div class="chart-overlay">
+                    <div>MAX σ: <span id="chart-max" style="color:#fff;">2.0</span></div>
+                    <div>MIN σ: <span id="chart-min" style="color:#fff;">2.0</span></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel distribution">
+            <div class="panel-title">Drift Usage Distribution <span>[μ PARAMETER]</span></div>
+            <div class="dist-container" id="dist-chart">
+                </div>
+        </section>
+
+        <section class="panel growth">
+            <div class="panel-title">Mathematical Growth <span>[NEURAL LINK]</span></div>
+            <div class="node-list" id="growth-list">
+                </div>
+        </section>
+
+    </div>
+
+    <script>
+        // --- 1. LOAD LIVE DATA FROM LOCAL STORAGE ---
+        function loadLiveStats() {
+            document.getElementById('session-id').innerText = "0x" + Math.floor(Math.random()*16777215).toString(16).toUpperCase();
+
+            // Read stats from localStorage
+            let totalTime = parseFloat(localStorage.getItem('stochastic_total_time') || '0');
+            let totalDist = parseInt(localStorage.getItem('stochastic_dist') || '0');
+            let maxDist = parseInt(localStorage.getItem('stochastic_max_dist') || '0');
+            let avgVol = parseFloat(localStorage.getItem('stochastic_avg_vol') || '2.00');
+            let totalNodes = parseInt(localStorage.getItem('stochastic_nodes') || '0');
+            
+            // Tally defeated bosses
+            let bossesDefeated = 0;
+            ['brownian', 'volatility', 'ito', 'swan'].forEach(boss => {
+                if (localStorage.getItem('stochastic_boss_' + boss) === 'true') bossesDefeated++;
+            });
+
+            // Set DOM attributes for the animator
+            document.getElementById('stat-time').setAttribute('data-val', totalTime);
+            document.getElementById('stat-dist').setAttribute('data-val', totalDist);
+            document.getElementById('stat-max-dist').setAttribute('data-val', maxDist);
+            document.getElementById('stat-vol').setAttribute('data-val', avgVol);
+            document.getElementById('stat-nodes').setAttribute('data-val', totalNodes);
+            document.getElementById('stat-bosses').setAttribute('data-val', bossesDefeated);
+        }
+
+        // --- 2. NUMBER COUNTER ANIMATION ---
+        function animateCounters() {
+            const counters = document.querySelectorAll('.stat-value');
+            const duration = 2000;
+
+            counters.forEach(counter => {
+                const target = parseFloat(counter.getAttribute('data-val'));
+                const format = counter.getAttribute('data-format');
+                const startTime = performance.now();
+
+                function update(currentTime) {
+                    const elapsed = currentTime - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    
+                    const easeOut = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+                    const currentVal = target * easeOut;
+
+                    if (format === 'num') {
+                        counter.innerText = Math.floor(currentVal).toLocaleString() + (counter.id.includes('dist') ? ' m' : '');
+                    } else if (format === 'dec') {
+                        counter.innerText = currentVal.toFixed(2) + ' σ';
+                    } else if (format === 'time') {
+                        let totalSeconds = currentVal;
+                        let h = Math.floor(totalSeconds / 3600);
+                        let m = Math.floor((totalSeconds % 3600) / 60);
+                        let s = Math.floor(totalSeconds % 60);
+                        counter.innerText = `${h}h ${m}m ${s}s`;
+                    }
+
+                    if (progress < 1) requestAnimationFrame(update);
+                    else counter.style.textShadow = '0 0 20px ' + (counter.parentElement.classList.contains('warning') ? 'var(--accent-red)' : 'var(--accent-cyan)');
+                }
+                requestAnimationFrame(update);
+            });
+        }
+
+        // --- 3. LIVE VOLATILITY CANVAS CHART ---
+        const canvas = document.getElementById('volatility-canvas');
+        const ctx = canvas.getContext('2d');
+        let chartData = [];
+        let frame = 0;
+        let baseVol = parseFloat(localStorage.getItem('stochastic_avg_vol') || '2.00') / 10; 
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function initChartData() {
+            for(let i=0; i<100; i++) chartData.push(baseVol + (Math.random() * 0.1 - 0.05));
+        }
+
+        function drawChart() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            frame++;
+
+            if (frame % 2 === 0) {
+                let last = chartData[chartData.length - 1];
+                let noise = (Math.random() - 0.5) * 0.05;
+                if(Math.random() > 0.95) noise += (Math.random() - 0.2) * 0.3; 
+                let next = Math.max(0.05, Math.min(0.95, last + noise));
+                
+                next += (baseVol - next) * 0.05; 
+                
+                chartData.push(next);
+                chartData.shift();
+                
+                document.getElementById('chart-max').innerText = (Math.max(...chartData) * 10).toFixed(1);
+                document.getElementById('chart-min').innerText = (Math.min(...chartData) * 10).toFixed(1);
+            }
+
+            ctx.strokeStyle = 'rgba(0, 243, 255, 0.05)';
+            ctx.lineWidth = 1;
+            for(let i=0; i<canvas.height; i+=30) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke(); }
+            for(let i=0; i<canvas.width; i+=50) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke(); }
+
+            ctx.beginPath();
+            const step = canvas.width / (chartData.length - 1);
+            ctx.moveTo(0, canvas.height - (chartData[0] * canvas.height));
+            
+            for (let i = 1; i < chartData.length; i++) {
+                ctx.lineTo(i * step, canvas.height - (chartData[i] * canvas.height));
+            }
+
+            ctx.strokeStyle = '#00f3ff';
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00f3ff';
+            ctx.stroke();
+
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.closePath();
+            
+            let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            grad.addColorStop(0, 'rgba(0, 243, 255, 0.2)');
+            grad.addColorStop(1, 'rgba(0, 243, 255, 0)');
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            ctx.shadowBlur = 0;
+            requestAnimationFrame(drawChart);
+        }
+
+        // --- 4. DRIFT DISTRIBUTION CHART (CSS Bars) ---
+        function initDistributionChart() {
+            const container = document.getElementById('dist-chart');
+            const labels = ["-5", "-4", "-3", "-2", "-1", "0", "+1", "+2", "+3", "+4", "+5"];
+	    let data = labels.map(l => parseInt(localStorage.getItem('drift_usage_' + l) || 0));
+            
+            // Find max for scaling
+            let maxVal = Math.max(...data, 1);
+
+            data.forEach((val, i) => {
+		let heightPercent = (val / maxVal) * 100;
+                const group = document.createElement('div');
+                group.className = `dist-bar-group ${labels[i] === "0" ? "center" : ""}`;
+                
+                const bar = document.createElement('div');
+                bar.className = 'dist-bar';
+                
+                const label = document.createElement('div');
+                label.className = 'dist-label';
+                label.innerText = labels[i];
+
+                group.appendChild(bar);
+                group.appendChild(label);
+                container.appendChild(group);
+
+                setTimeout(() => { bar.style.height = val + "%"; }, 500 + (i * 50));
+            });
+        }
+
+        // --- 5. LIVE MATHEMATICAL GROWTH GAUGES ---
+        function isNodeUnlocked(id) {
+            if (id === 'prob') return true;
+            return localStorage.getItem('vault_unlocked_' + id) === 'true';
+        }
+
+        function initGrowthList() {
+            const list = document.getElementById('growth-list');
+            list.innerHTML = '';
+            
+            // Map the 13 exact nodes from the Knowledge Vault into logical groupings
+            const growthGroups = [
+                { name: "Stochastic Foundations", desc: "Probability, Random Walk, Brownian Motion.", nodeIds: ['prob', 'rw', 'bm'] },
+                { name: "Continuous Processes", desc: "Drift, Volatility, Geometric BM.", nodeIds: ['drift', 'vol', 'gbm'] },
+                { name: "Advanced Rules", desc: "Martingales & Itô Calculus.", nodeIds: ['mart', 'ito'] },
+                { name: "Process Transformations", desc: "Portals, Log Form, Squared Form.", nodeIds: ['transforms', 'log', 'sq'] },
+                { name: "Discontinuous Events", desc: "Jump Processes & Black Swans.", nodeIds: ['jump', 'swan'] }
+            ];
+            
+            growthGroups.forEach((group, i) => {
+                // Calculate completion percentage for this group
+                let unlockedCount = group.nodeIds.filter(id => isNodeUnlocked(id)).length;
+                let progress = Math.floor((unlockedCount / group.nodeIds.length) * 100);
+                
+                const item = document.createElement('div');
+                item.className = `node-item ${progress === 100 ? 'complete' : ''}`;
+                
+                // Calculate SVG circle dasharray (circumference is ~100 for r=15.915)
+                const dash = `${progress}, 100`;
+
+                item.innerHTML = `
+                    <svg viewBox="0 0 36 36" class="radial-gauge">
+                        <path class="gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        <path class="gauge-progress" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        <text x="18" y="19.5" class="gauge-text">${progress}%</text>
+                    </svg>
+                    <div class="node-info">
+                        <div class="node-name">${group.name}</div>
+                        <div class="node-desc">${group.desc}</div>
+                    </div>
+                `;
+                list.appendChild(item);
+
+                // Animate SVG gauge
+                setTimeout(() => {
+                    item.querySelector('.gauge-progress').setAttribute('stroke-dasharray', dash);
+                }, 800 + (i * 150));
+            });
+        }
+
+        // --- INIT ALL ---
+        window.onload = () => {
+            loadLiveStats();
+            animateCounters();
+            initChartData();
+            drawChart();
+            initDistributionChart();
+            initGrowthList();
+        };
+
+    </script>
+</body>
+</html>

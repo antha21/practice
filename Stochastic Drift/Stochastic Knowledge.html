@@ -1,0 +1,1819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stochastic Drift - Knowledge Vault</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;700&family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --bg-dark: #030412;
+            --bg-panel: rgba(6, 8, 32, 0.6);
+            --accent-green: #7fff8c;
+            --accent-cyan: #00f3ff;
+            --accent-red: #ff3366;
+            --accent-purple: #b000ff;
+            --accent-gold: #ffd700;
+            --text-main: #ffffff;
+            --text-dim: rgba(255,255,255,0.6);
+            --font-display: 'Orbitron', sans-serif;
+            --font-ui: 'Rajdhani', sans-serif;
+            --font-mono: 'Share Tech Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            width: 100vw; height: 100vh; overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: var(--font-ui); color: var(--text-main);
+        }
+
+        /* Ambient Background Canvas (Restored Spacy Particles) */
+        #bg-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; opacity: 0.4; }
+
+        /* --- LAYOUT --- */
+        #vault-container { display: flex; width: 100vw; height: 100vh; position: relative; z-index: 10; }
+        
+        #sidebar {
+            width: 320px; background: rgba(3, 4, 18, 0.85);
+            border-right: 1px solid rgba(127, 255, 140, 0.15);
+            display: flex; flex-direction: column; padding: 30px 0;
+            backdrop-filter: blur(10px); box-shadow: 5px 0 30px rgba(0,0,0,0.8);
+            z-index: 20; overflow-y: auto;
+        }
+
+        #header-area { padding: 0 30px 20px 30px; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 20px; text-align: center;}
+        
+        /* Restored Index Glitching Title */
+        .sidebar-title {
+            font-family: var(--font-display);
+            font-size: 1.8rem;
+            font-weight: 900;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5), 0 0 20px var(--accent-green), 0 0 40px var(--accent-green);
+            letter-spacing: 0.1em;
+            position: relative;
+            animation: glitch-skew 3s infinite linear alternate-reverse;
+            margin-bottom: 5px;
+            line-height: 1.1;
+        }
+        .sidebar-title::before, .sidebar-title::after {
+            content: attr(data-text);
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: transparent;
+        }
+        .sidebar-title::before {
+            left: 2px; text-shadow: -2px 0 #ff00c1; clip: rect(10px, 450px, 30px, 0);
+            animation: glitch-anim 5s infinite linear alternate-reverse;
+        }
+        .sidebar-title::after {
+            left: -2px; text-shadow: -2px 0 var(--accent-green); clip: rect(10px, 450px, 30px, 0);
+            animation: glitch-anim2 5s infinite linear alternate-reverse;
+        }
+
+        @keyframes glitch-anim { 0% { clip: rect(10px, 9999px, 31px, 0); } 20% { clip: rect(62px, 9999px, 12px, 0); } 40% { clip: rect(31px, 9999px, 83px, 0); } 60% { clip: rect(82px, 9999px, 2px, 0); } 80% { clip: rect(18px, 9999px, 94px, 0); } 100% { clip: rect(48px, 9999px, 34px, 0); } }
+        @keyframes glitch-anim2 { 0% { clip: rect(65px, 9999px, 100px, 0); } 20% { clip: rect(3px, 9999px, 54px, 0); } 40% { clip: rect(89px, 9999px, 20px, 0); } 60% { clip: rect(22px, 9999px, 76px, 0); } 80% { clip: rect(63px, 9999px, 11px, 0); } 100% { clip: rect(33px, 9999px, 92px, 0); } }
+        @keyframes glitch-skew { 0% { transform: skew(0deg); } 90% { transform: skew(0deg); } 91% { transform: skew(2deg); } 92% { transform: skew(-2deg); } 93% { transform: skew(0deg); } 100% { transform: skew(0deg); } }
+
+        .vault-subtitle { font-size: 0.85rem; color: var(--text-dim); letter-spacing: 0.15em; font-family: var(--font-mono); }
+        
+        .nav-btn {
+            background: transparent; border: none; border-left: 4px solid transparent;
+            color: var(--text-dim); font-family: var(--font-display); font-size: 0.9rem;
+            text-align: left; padding: 18px 30px; cursor: pointer; transition: 0.4s cubic-bezier(0.1, 0.9, 0.2, 1);
+            text-transform: uppercase; letter-spacing: 0.15em; width: 100%;
+            position: relative; overflow: hidden;
+        }
+        .nav-btn::before {
+            content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(127, 255, 140, 0.1), transparent);
+            transition: 0.4s;
+        }
+        .nav-btn:hover { color: #fff; background: rgba(127, 255, 140, 0.05); padding-left: 40px; }
+        .nav-btn:hover::before { left: 100%; }
+        .nav-btn.active { color: var(--accent-green); border-left-color: var(--accent-green); background: linear-gradient(90deg, rgba(127, 255, 140, 0.15), transparent); text-shadow: 0 0 10px var(--accent-green); }
+
+        #main-content {
+            flex-grow: 1; padding: 60px; overflow-y: auto; scroll-behavior: smooth; position: relative;
+        }
+        #main-content.no-pad { padding: 0; overflow: hidden; }
+        #main-content::-webkit-scrollbar { width: 8px; }
+        #main-content::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        #main-content::-webkit-scrollbar-thumb { background: rgba(127, 255, 140, 0.3); border-radius: 4px; }
+
+        .section { display: none; max-width: 1100px; margin: 0 auto; animation: slideUp 0.6s cubic-bezier(0.1, 0.9, 0.2, 1) forwards; opacity: 0; }
+        .section.active { display: block; }
+        .section.full-bleed { max-width: none; height: 100%; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- TYPOGRAPHY & EQUATIONS --- */
+        h2.section-title { font-family: var(--font-display); font-size: 3rem; color: #fff; letter-spacing: 0.1em; border-bottom: 2px solid rgba(127, 255, 140, 0.3); padding-bottom: 15px; margin-bottom: 40px; text-shadow: 0 0 20px rgba(127, 255, 140, 0.2); }
+        h3 { font-family: var(--font-display); font-size: 1.6rem; color: var(--accent-gold); margin-top: 40px; margin-bottom: 15px; letter-spacing: 0.1em; text-transform: uppercase; }
+        p { font-size: 1.2rem; line-height: 1.7; color: rgba(255,255,255,0.75); margin-bottom: 20px; font-family: var(--font-ui); }
+        
+        .equation-box {
+            background: linear-gradient(135deg, rgba(6, 8, 32, 0.9), rgba(10, 15, 40, 0.9));
+            border: 1px solid rgba(127, 255, 140, 0.2); border-radius: 12px;
+            padding: 40px; text-align: center; margin: 30px 0;
+            font-family: "Times New Roman", serif; font-style: italic; font-size: 3.5rem;
+            letter-spacing: 0.05em; color: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.5), inset 0 0 40px rgba(127, 255, 140, 0.05);
+            position: relative; overflow: hidden;
+        }
+        .equation-box::after {
+            content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 60%);
+            animation: slowSpin 20s linear infinite; pointer-events: none;
+        }
+        @keyframes slowSpin { 100% { transform: rotate(360deg); } }
+        
+
+	/* Smaller Equation Box for the Network Panel */
+        .equation-box.small-eq { 
+            font-size: 1.5rem; 
+            padding: 15px; 
+            margin: 15px 0; 
+        }
+
+        /* Decryption Flash Animation for the Panel Text */
+        @keyframes decrypt-flash {
+            0% { box-shadow: 0 0 40px var(--accent-green), inset 0 0 40px var(--accent-green); background: var(--accent-green); color: #000; transform: scale(1.05); }
+            100% { box-shadow: 0 0 0px transparent, inset 0 0 0px transparent; background: transparent; color: var(--accent-green); transform: scale(1); }
+        }
+        .flash-active {
+            animation: decrypt-flash 0.8s cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
+            border-radius: 4px;
+            display: inline-block;
+            padding: 2px 10px;
+        }
+
+        .pulse-term { transition: all 0.3s ease; display: inline-block; cursor: crosshair; }
+        .pulse-term:hover { transform: scale(1.15); z-index: 10; position: relative; }
+        
+        .cyan-glow { color: var(--accent-cyan); text-shadow: 0 0 20px var(--accent-cyan); animation: breath-cyan 3s infinite alternate; }
+        .gold-glow { color: var(--accent-gold); text-shadow: 0 0 20px var(--accent-gold); animation: breath-gold 3s infinite alternate; }
+        .purple-glow { color: var(--accent-purple); text-shadow: 0 0 20px var(--accent-purple); animation: breath-purple 3s infinite alternate; }
+        .green-glow { color: var(--accent-green); text-shadow: 0 0 20px var(--accent-green); animation: breath-green 3s infinite alternate; }
+        .red-glow { color: var(--accent-red); text-shadow: 0 0 20px var(--accent-red); animation: breath-red 3s infinite alternate; }
+        
+        @keyframes breath-cyan { 0% { filter: brightness(1); } 100% { filter: brightness(1.5); text-shadow: 0 0 30px var(--accent-cyan); } }
+        @keyframes breath-gold { 0% { filter: brightness(1); } 100% { filter: brightness(1.5); text-shadow: 0 0 30px var(--accent-gold); } }
+        @keyframes breath-purple { 0% { filter: brightness(1); } 100% { filter: brightness(1.5); text-shadow: 0 0 30px var(--accent-purple); } }
+        @keyframes breath-green { 0% { filter: brightness(1); } 100% { filter: brightness(1.5); text-shadow: 0 0 30px var(--accent-green); } }
+        @keyframes breath-red { 0% { filter: brightness(1); } 100% { filter: brightness(1.5); text-shadow: 0 0 30px var(--accent-red); } }
+
+        /* --- INTERACTIVE CARDS --- */
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+        
+        .card { 
+            background: var(--bg-panel); border: 1px solid rgba(255,255,255,0.05); 
+            padding: 40px; border-radius: 12px; transition: all 0.2s ease-out; 
+            position: relative; overflow: hidden; backdrop-filter: blur(10px);
+            transform-style: preserve-3d; cursor: default;
+        }
+        .card:hover { border-color: rgba(255,255,255,0.2); box-shadow: 0 20px 40px rgba(0,0,0,0.6); z-index: 5; }
+        
+        .card-art { height: 200px; display: flex; justify-content: center; align-items: center; margin-bottom: 30px; position: relative; }
+        .card-eq { font-family: "Times New Roman", serif; font-style: italic; font-size: 2rem; text-align: center; color: #fff; margin-bottom: 20px; }
+        
+        .gameplay-note { border-left: 4px solid var(--accent-cyan); font-family: var(--font-ui); color: rgba(255,255,255,0.9); margin-top: 25px; background: rgba(0, 243, 255, 0.05); padding: 15px 20px; border-radius: 0 8px 8px 0; }
+        
+        .card-flare { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.1), transparent 70%); pointer-events: none; opacity: 0; transition: opacity 0.3s; }
+        .card:hover .card-flare { opacity: 1; }
+
+        .edu-label { font-family: var(--font-display); font-size: 0.9rem; color: #fff; text-transform: uppercase; letter-spacing: 0.2em; opacity: 0.5; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;}
+
+        /* --- VISUAL RENDERS (Perfect Exact Replications of Canvas Engine) --- */
+
+        /* Data & Survival */
+        .art-orb { width: 50px; height: 50px; border-radius: 50%; background: rgba(255, 215, 0, 0.2); border: 2px solid #ffd700; box-shadow: 0 0 20px #ffd700; display: flex; justify-content: center; align-items: center; position: relative; animation: floatOrb 3s infinite alternate; }
+        .art-orb::after { content:''; width: 10px; height: 10px; background: #fff; border-radius: 50%; box-shadow: 0 0 10px #fff; }
+
+        .art-node { width: 30px; height: 30px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 2px solid #7fff8c; box-shadow: 0 0 20px #7fff8c; display: flex; justify-content: center; align-items: center; animation: floatOrb 3s infinite alternate-reverse; }
+        .art-node::after { content:''; width: 12px; height: 12px; background: #fff; border-radius: 50%; box-shadow: 0 0 10px #fff; }
+
+        .art-shield { width: 80px; height: 80px; border-radius: 50%; border: 3px solid #00f3ff; box-shadow: 0 0 20px #00f3ff, inset 0 0 20px #00f3ff; position: relative; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,243,255,0.1); animation: floatOrb 4s ease-in-out infinite; }
+        .art-shield-orbit { position: absolute; width: 130px; height: 130px; animation: spinOrbit 8s linear infinite; }
+        .art-shield-orbit::before { content: 'σSₜdWₜ'; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-family: "Times New Roman", serif; font-size: 16px; color: #fff; text-shadow: 0 0 10px #00f3ff; }
+        .art-shield-orbit::after { content: 'Var(X)=σ²'; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); font-family: "Times New Roman", serif; font-size: 16px; color: #fff; text-shadow: 0 0 10px #00f3ff; }
+
+        .art-martingale { width: 80px; height: 80px; border-radius: 50%; border: 3px solid #ffd700; box-shadow: 0 0 20px #ffd700, inset 0 0 20px #ffd700; position: relative; display: flex; justify-content: center; align-items: center; background: rgba(255,215,0,0.1); animation: floatOrb 3.5s ease-in-out infinite reverse; }
+        .art-martingale::after { content: ''; position: absolute; top: -8px; left: -8px; right: -8px; bottom: -8px; border-radius: 50%; border: 2px dashed #ffd700; animation: spinOrbit 6s linear infinite; }
+        .art-martingale-orbit { position: absolute; width: 130px; height: 130px; animation: spinOrbit 8s linear infinite; }
+        .art-martingale-orbit::before { content: 'E[Xₜ₊₁|Xₜ]=Xₜ'; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-family: "Times New Roman", serif; font-size: 14px; color: #fff; font-weight: bold; text-shadow: 0 0 10px #ffd700; white-space: nowrap;}
+        .art-martingale-orbit::after { content: 'MARTINGALE'; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); font-family: "Times New Roman", serif; font-size: 14px; color: #fff; font-weight: bold; text-shadow: 0 0 10px #ffd700; white-space: nowrap;}
+
+        /* Combat Amplifiers */
+        .art-weapon { width: 70px; height: 70px; border: 4px solid; box-shadow: 0 0 20px; position: relative; display: flex; justify-content: center; align-items: center; background: rgba(255,255,255,0.05); flex-direction: column;}
+        .art-weapon::before { content: ''; position: absolute; width: 70%; height: 70%; border: 4px solid inherit; border-color: inherit; transform: rotate(45deg); animation: spinOrbit 4s linear infinite reverse; }
+        .art-weapon span { font-family: "Times New Roman", serif; font-size: 18px; color: #fff; font-weight: bold; z-index: 2; text-shadow: 0 0 10px currentColor; }
+        .art-weapon-orbit { position: absolute; width: 140px; height: 140px; animation: spinOrbit 6s linear infinite; }
+        .art-weapon-orbit::before { content: attr(data-eq); position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-family: "Times New Roman", serif; font-size: 16px; color: #fff; text-shadow: 0 0 10px currentColor; font-weight: bold; white-space: nowrap; }
+        .art-weapon-orbit::after { content: attr(data-label); position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); font-family: "Times New Roman", serif; font-size: 16px; color: #fff; text-shadow: 0 0 10px currentColor; font-weight: bold; white-space: nowrap; }
+        
+        .aw-drift { border-color: #00ffaa; color: #00ffaa; box-shadow: 0 0 30px #00ffaa, inset 0 0 10px #00ffaa; }
+        .aw-knowledge { border-color: #7fff8c; color: #7fff8c; box-shadow: 0 0 30px #7fff8c, inset 0 0 10px #7fff8c; }
+        .aw-eigen { border-color: #ff8800; color: #ff8800; box-shadow: 0 0 30px #ff8800, inset 0 0 10px #ff8800; }
+        .aw-volatility { border-color: #ff00c1; color: #ff00c1; box-shadow: 0 0 30px #ff00c1, inset 0 0 10px #ff00c1; }
+
+        /* Transformations */
+        .art-portal { width: 100px; height: 100px; position: relative; display: flex; justify-content: center; align-items: center; }
+        .art-portal-octagon { position: absolute; width: 100%; height: 100%; border: 3px solid var(--portal-color); box-shadow: 0 0 20px var(--portal-color), inset 0 0 20px var(--portal-color); clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%); animation: spinOrbit 10s linear infinite; }
+        .art-portal-core { width: 50%; height: 50%; background: var(--portal-shadow); border-radius: 50%; filter: blur(8px); animation: pulseOpacity 2s infinite alternate; }
+        .art-portal-text { position: absolute; font-family: "Times New Roman", serif; font-size: 24px; font-weight: bold; font-style: italic; color: #fff; text-shadow: 0 0 15px #fff; z-index: 2; }
+        .art-portal-orbit { position: absolute; width: 150px; height: 150px; animation: spinOrbit 12s linear infinite reverse; }
+        .art-portal-orbit span { position: absolute; font-family: serif; font-size: 16px; color: var(--portal-color); text-shadow: 0 0 10px var(--portal-color); }
+        .art-portal-orbit span:nth-child(1) { top: -10px; left: 50%; transform: translateX(-50%); }
+        .art-portal-orbit span:nth-child(2) { bottom: 15px; left: 0; }
+        .art-portal-orbit span:nth-child(3) { bottom: 15px; right: 0; }
+
+        @keyframes floatOrb { 0% { transform: translateY(-10px); } 50% { transform: translateY(10px); } 100% { transform: translateY(-10px); } }
+        @keyframes spinOrbit { 100% { transform: rotate(360deg); } }
+        @keyframes pulseOpacity { 0% { opacity: 0.3; } 100% { opacity: 1; } }
+
+        /* --- BOSS ENCYCLOPEDIA --- */
+        .boss-card { border-top: 4px solid transparent; min-height: 400px; display: flex; flex-direction: column; justify-content: center; }
+        .boss-card.locked { 
+            opacity: 0.8; border-color: #222; background: rgba(0,0,0,0.5);
+            box-shadow: none; pointer-events: none;
+        }
+        .boss-card.locked .boss-art-wrapper { filter: brightness(0) drop-shadow(0 0 10px rgba(0,0,0,0.9)); opacity: 0.4; }
+        
+        .lock-overlay { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: repeating-linear-gradient(45deg, transparent, transparent 15px, rgba(0,0,0,0.8) 15px, rgba(0,0,0,0.8) 30px); 
+            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10;
+        }
+        .lock-title { font-family: var(--font-display); font-size: 2.5rem; color: #ff3366; text-shadow: 0 0 20px #ff0000; letter-spacing: 0.2em; border: 2px solid #ff3366; padding: 10px 20px; background: rgba(0,0,0,0.8); }
+        .lock-desc { font-family: var(--font-mono); font-size: 1rem; color: var(--text-dim); margin-top: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; }
+
+        .boss-shadow-pedestal {
+            width: 100%; height: 250px; margin-bottom: 20px; position: relative;
+            background: radial-gradient(ellipse at bottom, rgba(255,255,255,0.05) 0%, transparent 60%);
+            display: flex; justify-content: center; align-items: center;
+            border-bottom: 2px solid rgba(255,255,255,0.1);
+        }
+        .boss-card.locked .boss-shadow { 
+            font-size: 8rem; color: transparent; text-shadow: 0 0 20px rgba(0,0,0,0.8);
+            -webkit-text-stroke: 2px rgba(255,255,255,0.1); filter: blur(2px);
+            animation: floatOrb 4s infinite alternate; font-family: serif;
+        }
+
+        .boss-stats { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-dim); margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .boss-stats span { color: var(--accent-gold); }
+
+        /* --- NODE NETWORK --- */
+        #network-canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+        #network-panel {
+            position: absolute; top: 0; right: -480px; width: 450px; height: 100%;
+            background: rgba(6, 8, 32, 0.95); backdrop-filter: blur(15px);
+            border-left: 1px solid var(--accent-green);
+            box-shadow: -10px 0 40px rgba(0, 0, 0, 0.8);
+            transition: right 0.5s cubic-bezier(0.1, 0.9, 0.2, 1);
+            padding: 40px 30px; display: flex; flex-direction: column; z-index: 20;
+        }
+        #network-panel.active { right: 0; }
+        
+        .np-close { position: absolute; top: 20px; right: 20px; background: transparent; border: none; color: var(--text-dim); font-size: 2.5rem; cursor: pointer; transition: 0.2s; }
+        .np-close:hover { color: var(--accent-red); }
+        .np-title { font-family: var(--font-display); font-size: 2.4rem; color: var(--accent-green); text-shadow: 0 0 15px var(--accent-green); margin-bottom: 5px; line-height: 1.1; }
+        .np-status { font-family: var(--font-mono); color: #fff; font-size: 0.9rem; letter-spacing: 0.2em; margin-bottom: 25px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+        .np-content { flex-grow: 1; overflow-y: auto; padding-right: 15px; font-size: 1.15rem; line-height: 1.6; }
+        .np-content::-webkit-scrollbar { width: 4px; }
+        .np-content::-webkit-scrollbar-thumb { background: rgba(127, 255, 140, 0.3); }
+
+        /* --- SKINS VAULT --- */
+        .skins-intro { max-width: 900px; }
+
+        /* Rarity tier system — color, glow, and label all derive from one source of truth */
+        .rarity-common    { --rarity-color: #cdd6e0; --rarity-glow: rgba(205,214,224,0.45); }
+        .rarity-rare       { --rarity-color: #00f3ff; --rarity-glow: rgba(0,243,255,0.55); }
+        .rarity-epic       { --rarity-color: #b000ff; --rarity-glow: rgba(176,0,255,0.6); }
+        .rarity-legendary  { --rarity-color: #ffd700; --rarity-glow: rgba(255,215,0,0.7); }
+        .rarity-mythic     { --rarity-color: #ff3366; --rarity-glow: rgba(255,51,102,0.8); }
+
+        .rarity-badge {
+            display: inline-block; font-family: var(--font-display); font-size: 0.85rem; font-weight: 900;
+            letter-spacing: 0.2em; text-transform: uppercase; padding: 6px 16px; border-radius: 4px;
+            color: #000; background: var(--rarity-color); box-shadow: 0 0 20px var(--rarity-glow);
+        }
+
+        /* --- FEATURED DISPLAY --- */
+        .skin-featured {
+            position: relative; margin: 30px 0 40px 0; padding: 50px 30px 40px 30px; border-radius: 16px;
+            min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: radial-gradient(ellipse at center, rgba(255,255,255,0.04) 0%, rgba(3,4,18,0.6) 70%);
+            border: 1px solid rgba(255,255,255,0.08); overflow: hidden;
+        }
+        .skin-featured-glow {
+            position: absolute; top: 50%; left: 50%; width: 320px; height: 320px; border-radius: 50%;
+            transform: translate(-50%, -50%); background: var(--rarity-color, #7fff8c);
+            filter: blur(70px); opacity: 0.25; animation: featuredGlowPulse 4s ease-in-out infinite alternate;
+            pointer-events: none; transition: background 0.4s ease;
+        }
+        @keyframes featuredGlowPulse { 0% { opacity: 0.18; transform: translate(-50%, -50%) scale(0.92); } 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1.08); } }
+
+        .skin-featured-pedestal {
+            position: absolute; bottom: 30px; left: 50%; width: 280px; height: 40px; transform: translateX(-50%);
+            background: radial-gradient(ellipse at center, var(--rarity-color, #7fff8c) 0%, transparent 75%);
+            opacity: 0.35; filter: blur(4px); pointer-events: none;
+        }
+
+        .skin-featured-particles { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .skin-particle {
+            position: absolute; border-radius: 50%; background: var(--rarity-color, #fff);
+            box-shadow: 0 0 10px var(--rarity-color, #fff); animation: floatParticle linear infinite;
+        }
+        @keyframes floatParticle {
+            0%   { transform: translate(0, 0) scale(0.6); opacity: 0; }
+            10%  { opacity: 1; }
+            50%  { transform: translate(var(--drift-x, 20px), -90px) scale(1); }
+            90%  { opacity: 1; }
+            100% { transform: translate(calc(var(--drift-x, 20px) * 1.6), -170px) scale(0.4); opacity: 0; }
+        }
+
+        .skin-featured-preview {
+            position: relative; z-index: 2; min-height: 200px; display: flex; align-items: center; justify-content: center;
+            transition: opacity 0.35s ease, filter 0.35s ease, transform 0.35s ease;
+        }
+        .skin-featured-info { position: relative; z-index: 2; text-align: center; margin-top: 10px; transition: opacity 0.35s ease, transform 0.35s ease; }
+        .skin-featured-info h3 { margin-top: 18px; margin-bottom: 8px; font-size: 2rem; color: #fff; letter-spacing: 0.08em; }
+        .skin-unlock-status { font-family: var(--font-mono); font-size: 0.95rem; color: var(--text-dim); letter-spacing: 0.1em; margin-top: 6px; }
+        .skin-unlock-status.is-unlocked { color: var(--accent-green); }
+        .skin-tagline { font-style: italic; color: rgba(255,255,255,0.7); max-width: 600px; margin: 12px auto 0 auto; font-size: 1.05rem; }
+
+        .btn-equip {
+            display: block; margin: 20px auto 0 auto; background: transparent; border: 1px solid var(--rarity-color, var(--accent-green));
+            color: var(--rarity-color, var(--accent-green)); padding: 12px 36px; font-family: var(--font-display); font-size: 0.95rem;
+            letter-spacing: 0.15em; cursor: pointer; transition: 0.25s; text-transform: uppercase;
+        }
+        .btn-equip:hover { background: var(--rarity-glow, rgba(127,255,140,0.15)); box-shadow: 0 0 25px var(--rarity-glow, rgba(127,255,140,0.4)); color: #fff; }
+        .btn-equip.equipped { background: var(--rarity-color, var(--accent-green)); color: #000; cursor: default; box-shadow: 0 0 25px var(--rarity-glow); }
+        .btn-equip.equipped:hover { background: var(--rarity-color, var(--accent-green)); color: #000; }
+        .btn-equip.skin-locked { opacity: 0.4; border-color: #555; color: #777; cursor: not-allowed; }
+        .btn-equip.skin-locked:hover { background: transparent; box-shadow: none; color: #777; }
+
+        .skin-thumb-equipped-tag {
+            position: absolute; top: 8px; left: 10px; font-size: 0.62rem; font-family: var(--font-display);
+            letter-spacing: 0.1em; color: #000; background: var(--rarity-color); padding: 2px 6px; border-radius: 3px;
+        }
+
+        .skin-transition-out { opacity: 0 !important; filter: blur(10px) !important; transform: scale(0.85) !important; }
+
+        /* --- EDUCATIONAL PANEL --- */
+        .skin-edu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        .skin-edu-grid p { font-size: 1.05rem; }
+        @media (max-width: 900px) { .skin-edu-grid { grid-template-columns: 1fr; } }
+
+        /* --- CATEGORY ROWS --- */
+        .skin-category-block { margin-top: 50px; }
+        .skin-category-block h3 { display: flex; align-items: center; gap: 14px; }
+        .skin-category-block h3 .cat-rarity-tag { font-size: 0.7rem; color: var(--text-dim); letter-spacing: 0.15em; text-transform: none; font-family: var(--font-mono); }
+        .skin-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; }
+
+        .skin-thumb {
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+            padding: 16px 10px 14px 10px; text-align: center; cursor: pointer; position: relative;
+            transition: border-color 0.2s ease, transform 0.15s ease, background 0.2s ease;
+        }
+        .skin-thumb:hover { transform: translateY(-4px); background: rgba(255,255,255,0.06); }
+        .skin-thumb.active { border-color: var(--rarity-color); box-shadow: 0 0 18px var(--rarity-glow); }
+        .skin-thumb-icon {
+            width: 56px; height: 56px; margin: 0 auto 10px auto; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center; font-family: "Times New Roman", serif; font-size: 1.3rem;
+            font-weight: bold; color: #fff; background: rgba(255,255,255,0.05);
+            border: 2px solid var(--rarity-color); box-shadow: 0 0 14px var(--rarity-glow);
+        }
+        .skin-thumb-name { font-family: var(--font-display); font-size: 0.78rem; letter-spacing: 0.06em; color: rgba(255,255,255,0.85); line-height: 1.3; text-transform: uppercase; }
+        .skin-thumb.locked { opacity: 0.55; }
+        .skin-thumb.locked .skin-thumb-icon { filter: grayscale(1) brightness(0.6); border-color: #444; box-shadow: none; }
+        .skin-thumb-lock { position: absolute; top: 8px; right: 10px; font-size: 0.95rem; color: var(--text-dim); font-family: var(--font-mono); }
+
+        #skin-unlock-toast {
+            position: fixed; top: 30px; right: 30px; z-index: 999; max-width: 320px;
+            background: linear-gradient(135deg, rgba(8,10,36,0.96), rgba(5,6,24,0.96));
+            border: 1px solid var(--accent-green); border-radius: 10px; padding: 16px 22px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6), 0 0 25px rgba(127,255,140,0.3);
+            opacity: 0; transform: translateX(40px); transition: opacity 0.4s ease, transform 0.4s ease;
+            pointer-events: none;
+        }
+        #skin-unlock-toast.visible { opacity: 1; transform: translateX(0); }
+        #skin-unlock-toast .toast-label { font-family: var(--font-display); font-size: 0.7rem; letter-spacing: 0.15em; margin-bottom: 4px; }
+        #skin-unlock-toast .toast-name { font-family: var(--font-display); font-size: 1.1rem; color: #fff; letter-spacing: 0.05em; }
+
+        .btn-return { position: relative; margin: 20px 30px 40px 30px; background: transparent; border: 1px solid var(--accent-green); color: var(--accent-green); padding: 15px 25px; font-family: var(--font-display); font-size: 1.2rem; cursor: pointer; transition: 0.3s; letter-spacing: 0.1em; text-align: center; }
+        .btn-return:hover { background: rgba(127, 255, 140, 0.1); box-shadow: 0 0 30px var(--accent-green); color: #fff; }
+
+    </style>
+</head>
+<body>
+
+    <!-- Ambient Spacy Particle Background -->
+    <canvas id="bg-canvas"></canvas>
+
+    <div id="skin-unlock-toast"></div>
+
+    <div id="vault-container">
+        <div id="sidebar">
+            <div id="header-area">
+                <div class="sidebar-title" data-text="KNOWLEDGE">KNOWLEDGE</div>
+                <div class="sidebar-title" data-text="VAULT" style="margin-bottom: 10px;">VAULT</div>
+            </div>
+            
+            <button class="nav-btn active" onclick="switchTab('network', event)">Concept Network</button>
+            <button class="nav-btn" onclick="switchTab('items', event)">Data &amp; Survival</button>
+            <button class="nav-btn" onclick="switchTab('weapons', event)">Combat Amplifiers</button>
+            <button class="nav-btn" onclick="switchTab('transforms', event)">Transformations</button>
+            <button class="nav-btn" onclick="switchTab('bosses', event)">Anomaly Archive</button>
+            <button class="nav-btn" onclick="switchTab('skins', event)">Skins Vault</button>
+            
+            <div style="flex-grow: 1;"></div>
+            
+            <button class="btn-return" onclick="window.location.href='index Sde.html'">EXIT TERMINAL</button>
+        </div>
+
+        <div id="main-content" class="no-pad">
+            
+            <!-- 1. CONCEPT NETWORK -->
+            <div id="tab-network" class="section active full-bleed" style="padding: 0; max-width: none; height: 100%;">
+                <canvas id="network-canvas"></canvas>
+                <div id="network-panel">
+                    <button class="np-close" onclick="closeNetworkPanel()">×</button>
+                    <h2 class="np-title" id="np-title">Concept</h2>
+                    <div class="np-status" id="np-status">DECRYPTED</div>
+                    <div class="np-content" id="np-content">
+                        <!-- Content Injected via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. DATA & SURVIVAL (Restored to exact layout) -->
+            <div id="tab-items" class="section">
+                <h2 class="section-title">Data & Survival Protocols</h2>
+                <p>These constructs manifest in the environment to aid in stabilizing the stochastic process. They represent foundational concepts in probability and risk management.</p>
+                <div class="grid">
+                    
+                    <div class="card interactive-card">
+                        <div class="card-art"><div class="art-orb"></div></div>
+                        <h3 style="color: var(--accent-gold); text-align: center;">Score Orbs</h3>
+                        <div class="card-eq">E[S] + Δ</div>
+                        <p>Standard data fragments representing localized performance maxima. Essential for scaling your evaluation metrics.</p>
+                    </div>
+
+                    <div class="card interactive-card">
+                        <div class="card-art"><div class="art-node"></div></div>
+                        <h3 style="color: var(--accent-green); text-align: center;">Knowledge Nodes</h3>
+                        <div class="card-eq">∫ data = K</div>
+                        <p>Dense mathematical proofs that yield massive progress decryption and survival point multipliers upon acquisition. Extremely valuable.</p>
+                    </div>
+                    
+                    <div class="card interactive-card">
+                        <div class="card-art"><div class="art-shield"><div class="art-shield-orbit"></div></div></div>
+                        <h3 style="color: var(--accent-cyan); text-align: center;">Volatility Buffer</h3>
+                        <div class="card-eq">σS<sub>t</sub>dW<sub>t</sub></div>
+                        <p><strong>Educational Concept:</strong> Volatility measures the magnitude of uncertainty, not the direction. In complex systems, absorbing outlier events is critical to long-term survival.</p>
+                        <div class="gameplay-note" style="border-left-color: var(--accent-cyan);"><strong>Simulation Effect:</strong> The Buffer mechanically absorbs exactly one unexpected structural shock or projectile, nullifying an extreme realization of randomness that would otherwise terminate your run.</div>
+                    </div>
+
+                    <div class="card interactive-card">
+                        <div class="card-art"><div class="art-martingale"><div class="art-martingale-orbit"></div></div></div>
+                        <h3 style="color: var(--accent-gold); text-align: center;">Martingale Recovery</h3>
+                        <div class="card-eq">E[X<sub>t+1</sub> | X<sub>t</sub>] = X<sub>t</sub></div>
+                        <p><strong>Educational Concept:</strong> A martingale is a sequence where the conditional expectation of the next value, given all prior information, is exactly equal to the present value. There is no predictable upward or downward drift.</p>
+                        <div class="gameplay-note" style="border-left-color: var(--accent-gold);"><strong>Simulation Effect:</strong> A critical failsafe. If terminal absorption occurs (death), the Martingale forces the system to reset expectation to the exact current state. The screen is cleared of anomalies, and the run continues seamlessly.</div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- WEAPON UPGRADES (Restored to exact layout) -->
+            <div id="tab-weapons" class="section">
+                <h2 class="section-title">Combat Amplifiers</h2>
+                <p>These modifiers—deployed strictly during Entity Encounters—allow you to actively weaponize the mathematics of the stochastic process to neutralize anomalies.</p>
+                <div class="grid">
+                    
+                    <div class="card interactive-card">
+                        <div class="card-art">
+                            <div class="art-weapon aw-drift">
+                                <span>μSₜ</span>
+                                <div class="art-weapon-orbit" data-eq="μSₜ" data-label="MOMENTUM"></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #00ffaa; text-align: center;">Momentum Core</h3>
+                        <div class="card-eq">Rate(μ) ↑</div>
+                        <p>Magnifies the directional velocity of probability streams emitted from the player.</p>
+                        <div class="gameplay-note" style="border-left-color: #00ffaa;"><strong>Simulation Effect:</strong> Massively increases your automatic projectile firing rate against anomalies.</div>
+                    </div>
+
+                    <div class="card interactive-card">
+                        <div class="card-art">
+                            <div class="art-weapon aw-knowledge">
+                                <span>λ</span>
+                                <div class="art-weapon-orbit" data-eq="λ" data-label="FIRE RATE"></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #7fff8c; text-align: center;">Knowledge Core</h3>
+                        <div class="card-eq">Spread(k) ↑</div>
+                        <p>Forks the process path, allowing simultaneous evaluation and traversal of multiple adjacent trajectories.</p>
+                        <div class="gameplay-note" style="border-left-color: #7fff8c;"><strong>Simulation Effect:</strong> Upgrades standard emission into a wide, 3-way spread attack.</div>
+                    </div>
+
+                    <div class="card interactive-card">
+                        <div class="card-art">
+                            <div class="art-weapon aw-eigen">
+                                <span>σ²</span>
+                                <div class="art-weapon-orbit" data-eq="σ²" data-label="DAMAGE AMP"></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #ff8800; text-align: center;">Eigen Burst</h3>
+                        <div class="card-eq">Magnitude(λ) ↑</div>
+                        <p>Condenses probability mass into a high-density, unbreakable eigenvalue state.</p>
+                        <div class="gameplay-note" style="border-left-color: #ff8800;"><strong>Simulation Effect:</strong> Projectiles turn golden, deal 1.5x damage, and pierce straight through targets without being destroyed.</div>
+                    </div>
+
+                    <div class="card interactive-card">
+                        <div class="card-art">
+                            <div class="art-weapon aw-volatility">
+                                <span>N(t)</span>
+                                <div class="art-weapon-orbit" data-eq="N(t)" data-label="POISSON"></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #ff00c1; text-align: center;">Volatility Dampener</h3>
+                        <div class="card-eq">Seek(σ) ↓</div>
+                        <p>Reduces the variance of your outputs, forcing them to strictly seek a target equilibrium point.</p>
+                        <div class="gameplay-note" style="border-left-color: #ff00c1;"><strong>Simulation Effect:</strong> Projectiles dynamically curve and home in on anomalies automatically.</div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- TRANSFORMATIONS (Fixed Squared Form to Portal Design) -->
+            <div id="tab-transforms" class="section">
+                <h2 class="section-title">Mathematical Transformations</h2>
+                <p>Portals allow the continuous process to undergo temporary, radical mathematical transformations, completely altering the physical laws governing the simulation geometry.</p>
+                <div class="grid">
+                    
+                    <div class="card interactive-card" style="border-top: 3px solid #ffd700;">
+                        <div class="card-art">
+                            <div class="art-portal" style="--portal-color: #ffd700; --portal-shadow: #ff8800;">
+                                <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">Sₜ²</div>
+                                <div class="art-portal-orbit"><span>+</span><span>σ²</span><span>S²</span></div>
+                            </div>
+                        </div>
+                        <h3 style="color: var(--accent-gold); text-align: center;">Squared Form</h3>
+                        <div class="card-eq">S<sub>t</sub>²</div>
+                        <p>Process expanded in magnitude. Local fluctuations become insignificant relative to total size.</p>
+                        <div class="gameplay-note" style="border-left-color: var(--accent-gold);"><strong>Simulation Effect:</strong> The ultimate state. Invulnerable. Obliterates obstacles on contact for massive score.</div>
+                    </div>
+
+                    <div class="card interactive-card" style="border-top: 3px solid #ff3366;">
+                        <div class="card-art">
+                            <div class="art-portal" style="--portal-color: #ff3366; --portal-shadow: #ff0000;">
+                                <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">ln(S)</div>
+                                <div class="art-portal-orbit"><span>−</span><span>½</span><span>σ²</span></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #ff3366; text-align: center;">Logarithmic Form</h3>
+                        <div class="card-eq">ln(S<sub>t</sub>)</div>
+                        <p>Variance amplified. Drift penalized. DANGER.</p>
+                        <div class="gameplay-note" style="border-left-color: #ff3366;"><strong>Simulation Effect:</strong> Transforms the process to log scale. High variance hazard zone but triples score.</div>
+                    </div>
+
+                    <div class="card interactive-card" style="border-top: 3px solid #7fff8c;">
+                        <div class="card-art">
+                            <div class="art-portal" style="--portal-color: #7fff8c; --portal-shadow: #ffd700;">
+                                <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">e^S</div>
+                                <div class="art-portal-orbit"><span>e</span><span>↑</span><span>μ</span></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #7fff8c; text-align: center;">Exponential Growth</h3>
+                        <div class="card-eq">e<sup>S<sub>t</sub></sup></div>
+                        <p>Accelerated yield. High damage potential. Multiplies process bounds rapidly.</p>
+                        <div class="gameplay-note" style="border-left-color: #7fff8c;"><strong>Simulation Effect:</strong> Fast generation of yield mechanics and score.</div>
+                    </div>
+
+                    <div class="card interactive-card" style="border-top: 3px solid #0055ff;">
+                        <div class="card-art">
+                            <div class="art-portal" style="--portal-color: #0055ff; --portal-shadow: #00f3ff;">
+                                <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">θ(μ-S)</div>
+                                <div class="art-portal-orbit"><span>θ</span><span>↔</span><span>μ</span></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #0055ff; text-align: center;">Mean Reversion</h3>
+                        <div class="card-eq">θ(μ-S<sub>t</sub>)</div>
+                        <p>Noise dampened. Process stabilized via an Ornstein-Uhlenbeck style pull towards the mean.</p>
+                        <div class="gameplay-note" style="border-left-color: #0055ff;"><strong>Simulation Effect:</strong> Automatically stabilizes your vertical movement towards the center.</div>
+                    </div>
+
+                    <div class="card interactive-card" style="border-top: 3px solid #b000ff;">
+                        <div class="card-art">
+                            <div class="art-portal" style="--portal-color: #b000ff; --portal-shadow: #ffffff;">
+                                <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">σ↓</div>
+                                <div class="art-portal-orbit"><span>↓</span><span>σ</span><span>k</span></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #b000ff; text-align: center;">Volatility Compression</h3>
+                        <div class="card-eq">σ↓</div>
+                        <p>Variance shrinking. Forces the process into a strict, low-risk state.</p>
+                        <div class="gameplay-note" style="border-left-color: #b000ff;"><strong>Simulation Effect:</strong> Suppresses the jagged noise of the trail, smoothing your flight path.</div>
+                    </div>
+
+                    <div class="card interactive-card" style="border-top: 3px solid #00ffaa;">
+                        <div class="card-art">
+                            <div class="art-portal" style="--portal-color: #00ffaa; --portal-shadow: #00ffaa;">
+                                <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">μ↑</div>
+                                <div class="art-portal-orbit"><span>↑</span><span>μ</span><span>S</span></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #00ffaa; text-align: center;">Drift Amplification</h3>
+                        <div class="card-eq">μ↑</div>
+                        <p>Directional momentum highly increased. Deterministic drift overpowers variance.</p>
+                        <div class="gameplay-note" style="border-left-color: #00ffaa;"><strong>Simulation Effect:</strong> Control inputs are heavily magnified for rapid vertical movement.</div>
+                    </div>
+
+                    <div class="card interactive-card" style="border-top: 3px solid #7fff8c;">
+                        <div class="card-art">
+                            <div class="art-portal" style="--portal-color: #7fff8c; --portal-shadow: #ffd700;">
+                                <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">μ→</div>
+                                <div class="art-portal-orbit"><span>μ</span><span>→</span><span>S</span></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #7fff8c; text-align: center;">Drift Field (Magnet)</h3>
+                        <div class="card-eq">μS<sub>t</sub>dt (Attraction)</div>
+                        <p>Positive drift actively pulls surrounding localized states toward the core process.</p>
+                        <div class="gameplay-note" style="border-left-color: #7fff8c;"><strong>Simulation Effect:</strong> Acts as a gravitational magnet, drawing all orbs and nodes directly to you.</div>
+                    </div>
+
+                    <div class="card interactive-card" style="border-top: 3px solid #b000ff;">
+                        <div class="card-art">
+                            <div class="art-portal" style="--portal-color: #b000ff; --portal-shadow: #b000ff;">
+                                <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">ITÔ</div>
+                                <div class="art-portal-orbit"><span>∫</span><span>∂</span><span>Ω</span></div>
+                            </div>
+                        </div>
+                        <h3 style="color: #b000ff; text-align: center;">Itô Realm</h3>
+                        <div class="card-eq">ITÔ</div>
+                        <p>Mathematical laws warping. Secondary partial derivatives distort Euclidean geometry.</p>
+                        <div class="gameplay-note" style="border-left-color: #b000ff;"><strong>Simulation Effect:</strong> Reality violently warps. The background grid distorts dynamically.</div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- 3. BOSS ARCHIVE (Enhanced Trophy Room) -->
+            <div id="tab-bosses" class="section">
+                <h2 class="section-title">Anomaly Trophy Room</h2>
+                <p>Highly classified, rogue mathematical formulations that disrupt standard simulation logic. Full architectural data is permanently restricted until absolute victory over the entity is achieved in the live environment.</p>
+                <div class="grid" id="boss-grid">
+                    <!-- Injected via JS based on localStorage kills -->
+                </div>
+            </div>
+
+            <!-- 4. MATHEMATICAL SKINS VAULT -->
+            <div id="tab-skins" class="section">
+                <h2 class="section-title">Mathematical Skins Vault</h2>
+                <p class="skins-intro">You are not unlocking characters. You are unlocking manifestations of mathematical ideas — every entity below is a living equation, earned through genuine mastery of the stochastic systems that govern Stochastic Drift. Select a manifestation to study its mathematics and inspect its current unlock status.</p>
+
+                <div class="skin-featured" id="skin-featured">
+                    <div class="skin-featured-glow" id="skin-featured-glow"></div>
+                    <div class="skin-featured-particles" id="skin-featured-particles"></div>
+                    <div class="skin-featured-pedestal"></div>
+                    <div class="skin-featured-preview" id="skin-featured-preview"></div>
+                    <div class="skin-featured-info" id="skin-featured-info">
+                        <span class="rarity-badge" id="skin-rarity-badge">COMMON</span>
+                        <h3 id="skin-featured-name">—</h3>
+                        <div class="skin-unlock-status" id="skin-unlock-status">—</div>
+                        <p class="skin-tagline" id="skin-tagline">—</p>
+                        <button class="btn-equip" id="skin-equip-btn" onclick="equipSkin()">EQUIP</button>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 10px;">
+                    <div class="edu-label">Mathematical Profile</div>
+                    <div class="skin-edu-grid" style="margin-top: 15px;">
+                        <div>
+                            <div class="edu-label">What Is It</div>
+                            <p id="skin-edu-what">—</p>
+                            <div class="edu-label" style="margin-top: 20px;">Why It Matters</div>
+                            <p id="skin-edu-why">—</p>
+                        </div>
+                        <div>
+                            <div class="edu-label">Connection To Stochastic Processes</div>
+                            <p id="skin-edu-connection">—</p>
+                            <div class="edu-label" style="margin-top: 20px;">Connection To Gameplay</div>
+                            <p id="skin-edu-gameplay">—</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="skin-category-block">
+                    <h3>Core Process Skins <span class="cat-rarity-tag">COMMON &ndash; RARE</span></h3>
+                    <div class="skin-row" id="skin-row-core"></div>
+                </div>
+                <div class="skin-category-block">
+                    <h3>Transformation Skins <span class="cat-rarity-tag">EPIC</span></h3>
+                    <div class="skin-row" id="skin-row-transform"></div>
+                </div>
+                <div class="skin-category-block">
+                    <h3>Boss Trophy Skins <span class="cat-rarity-tag">LEGENDARY</span></h3>
+                    <div class="skin-row" id="skin-row-boss"></div>
+                </div>
+                <div class="skin-category-block">
+                    <h3>Anomaly Collection <span class="cat-rarity-tag">MYTHIC</span></h3>
+                    <div class="skin-row" id="skin-row-anomaly"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- 1. BOSS DATA ---
+        const bosses = [
+            {
+                id: 'brownian', name: 'BROWNIAN BEAST', color: '#00f3ff',
+                eq: `dS<sub>t</sub> = μS<sub>t</sub>dt + <span class="pulse-term cyan-glow">σS<sub>t</sub>dW<sub>t</sub></span>`,
+                desc: "An entity representing pure stochastic motion. It manipulates the underlying Wiener process directly, dragging the localized environment into pure Gaussian noise.",
+                lore: "Normal fluctuations fail to capture the speed at which this anomaly distorts localized space. It represents standard Gaussian noise unchained and weaponized.",
+                strategy: "Track the central mass. Its projectile emissions follow standard sine-wave formulations that can be reliably predicted and dodged.",
+                art: `
+                    <svg width="120" height="120" viewBox="-60 -60 120 120" style="animation: floatOrb 4s infinite alternate;">
+                        <path d="M0,0 L15,-40 M0,0 L45,-20 M0,0 L50,10 M0,0 L20,45 M0,0 L-15,50 M0,0 L-45,20 M0,0 L-50,-10 M0,0 L-25,-45" stroke="#00f3ff" stroke-width="2" fill="none" style="filter:drop-shadow(0 0 10px #00f3ff);"/>
+                        <circle cx="0" cy="0" r="25" fill="#fff" style="filter:drop-shadow(0 0 15px #fff);"/>
+                    </svg>
+                `
+            },
+            {
+                id: 'volatility', name: 'VOLATILITY TITAN', color: '#ff3366',
+                eq: `dS<sub>t</sub> = μS<sub>t</sub>dt + <span class="pulse-term red-glow">σ</span>S<sub>t</sub>dW<sub>t</sub>`,
+                desc: "An entity built entirely from extreme structural variance. It does not move with purpose; it overwhelms the environment through raw, chaotic expansion.",
+                lore: "As the Titan asserts dominance, the volatility term (σ) pulses violently. Its attacks manifest as sudden, extreme spikes in localized variance that ignore standard drift.",
+                strategy: "Evasion is unreliable due to the sheer magnitude of variance. Prioritize defensive maneuvers and seek out Volatility Buffers to absorb inevitable outlier shocks.",
+                art: `
+                    <svg width="160" height="160" viewBox="-80 -80 160 160" style="animation: superPulse 2s infinite alternate;">
+                        <polygon points="40,0 28,28 0,40 -28,28 -40,0 -28,-28 0,-40 28,-28" fill="none" stroke="#ff3366" stroke-width="3" style="filter: drop-shadow(0 0 15px #ff3366); animation: spinOrbit 6s linear infinite;"/>
+                        <polygon points="30,0 21,21 0,30 -21,21 -30,0 -21,-21 0,-30 21,-21" fill="rgba(255,51,102,0.1)" stroke="#ff3366" stroke-width="2" style="animation: spinOrbit 4s linear infinite reverse;"/>
+                        <circle cx="0" cy="0" r="20" fill="#fff" style="filter:drop-shadow(0 0 15px #ff3366);"/>
+                    </svg>
+                `
+            },
+            {
+                id: 'ito', name: 'ITÔ ARCHITECT', color: '#7fff8c',
+                eq: `df = (∂f/∂t + μ∂f/∂x + <span class="pulse-term green-glow">½σ²∂²f/∂x²</span>)dt + σ∂f/∂xdW<sub>t</sub>`,
+                desc: "Standard Newtonian calculus fails in the presence of Brownian motion. The Architect embodies the stochastic calculus required to map and dominate this reality.",
+                lore: "The Architect literally rewrites the physics of the arena. Its attacks are derived from the secondary partial-derivative term, forcing continuous spatial geometry transformations.",
+                strategy: "The Architect frequently spawns transformation portals. Actively use them to alter your own mathematical state to counter its shifting environmental parameters.",
+                art: `
+                    <div style="position:relative; width:120px; height:120px; display:flex; justify-content:center; align-items:center; animation: floatOrb 5s infinite alternate;">
+                        <span style="font-family:serif; font-size:50px; color:#fff; text-shadow:0 0 20px #7fff8c; z-index:5;">I</span>
+                        <div style="position:absolute; width:100%; height:100%; animation: spinOrbit 8s linear infinite; display:flex; justify-content:center; align-items:center;">
+                            <span style="position:absolute; transform:translateY(-45px); color:#7fff8c; font-family:serif; font-size:18px; text-shadow: 0 0 10px #7fff8c;">∫</span>
+                            <span style="position:absolute; transform:translate(39px,-22.5px); color:#7fff8c; font-family:serif; font-size:18px; text-shadow: 0 0 10px #7fff8c;">∂</span>
+                            <span style="position:absolute; transform:translate(39px,22.5px); color:#7fff8c; font-family:serif; font-size:18px; text-shadow: 0 0 10px #7fff8c;">λ</span>
+                            <span style="position:absolute; transform:translateY(45px); color:#7fff8c; font-family:serif; font-size:18px; text-shadow: 0 0 10px #7fff8c;">Δ</span>
+                            <span style="position:absolute; transform:translate(-39px,22.5px); color:#7fff8c; font-family:serif; font-size:18px; text-shadow: 0 0 10px #7fff8c;">dW</span>
+                            <span style="position:absolute; transform:translate(-39px,-22.5px); color:#7fff8c; font-family:serif; font-size:18px; text-shadow: 0 0 10px #7fff8c;">dt</span>
+                        </div>
+                    </div>
+                `
+            },
+            {
+                id: 'swan', name: 'BLACK SWAN', color: '#b000ff',
+                eq: `dS<sub>t</sub> = μS<sub>t</sub>dt + σS<sub>t</sub>dW<sub>t</sub> + <span class="pulse-term purple-glow">J<sub>t</sub>dN<sub>t</sub></span>`,
+                desc: "An anomaly representing a Jump Diffusion process. It introduces massive, discontinuous, low-probability events into an otherwise continuous environment.",
+                lore: "Unlike standard volatility, Black Swan events do not follow a predictable Gaussian distribution. The term J_t dN_t represents extreme tail-risk—catastrophes that shatter the fabric of the simulation.",
+                strategy: "Watch for the catastrophic tracking laser. When the singularity charges, standard evasion is insufficient. You must anticipate the discontinuous jump and clear the vertical axis.",
+                art: `
+                    <svg width="120" height="120" viewBox="-60 -60 120 120" style="animation: floatOrb 3s infinite alternate;">
+                        <path d="M40,0 L-40,-60 L-20,0 L-40,60 Z" fill="#000" stroke="#b000ff" stroke-width="4" style="filter:drop-shadow(0 0 20px #b000ff);"/>
+                        <circle cx="-10" cy="0" r="8" fill="#00f3ff" style="filter:drop-shadow(0 0 10px #00f3ff);"/>
+                    </svg>
+                `
+            }
+        ];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- 2. AMBIENT BACKGROUND CANVAS ---
+            const canvas = document.getElementById('bg-canvas');
+            const ctx = canvas.getContext('2d');
+            let width, height, particles = [];
+            const LINK_DIST = 130, LINK_DIST_SQ = LINK_DIST * LINK_DIST;
+
+            function resize() {
+                width = window.innerWidth; height = window.innerHeight;
+                canvas.width = width; canvas.height = height;
+            }
+            let resizeTimer = null;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 120);
+            });
+            resize();
+
+            for(let i=0; i<70; i++) {
+                particles.push({
+                    x: Math.random() * width, y: Math.random() * height,
+                    vx: (Math.random() - 0.5) * 0.6, vy: (Math.random() - 0.5) * 0.6,
+                    size: Math.random() * 2 + 1
+                });
+            }
+
+            let bgRunning = true;
+            document.addEventListener('visibilitychange', () => {
+                bgRunning = !document.hidden;
+                if (bgRunning) requestAnimationFrame(animateBG);
+            });
+
+            function animateBG() {
+                if (!bgRunning) return;
+                ctx.clearRect(0, 0, width, height);
+                ctx.fillStyle = 'rgba(127, 255, 140, 0.4)';
+                ctx.strokeStyle = 'rgba(127, 255, 140, 0.1)';
+                
+                for(let i=0; i<particles.length; i++) {
+                    let p = particles[i];
+                    p.x += p.vx; p.y += p.vy;
+                    if(p.x < 0 || p.x > width) p.vx *= -1;
+                    if(p.y < 0 || p.y > height) p.vy *= -1;
+                    
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+                    
+                    for(let j=i+1; j<particles.length; j++) {
+                        let p2 = particles[j];
+                        let dx = p.x - p2.x, dy = p.y - p2.y;
+                        let distSq = dx*dx + dy*dy;
+                        if(distSq < LINK_DIST_SQ) {
+                            let dist = Math.sqrt(distSq);
+                            ctx.lineWidth = 1 - (dist/LINK_DIST);
+                            ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+                        }
+                    }
+                }
+                requestAnimationFrame(animateBG);
+            }
+            animateBG();
+
+            // --- 3. GENERATE BOSS GRID ---
+            const bossGrid = document.getElementById('boss-grid');
+            
+            // Get current date for trophy mock
+            let d = new Date();
+            let mockDate = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0');
+
+            bosses.forEach(b => {
+                let isUnlocked = localStorage.getItem('stochastic_boss_' + b.id) === 'true';
+                let card = document.createElement('div');
+                card.className = `card boss-card ${isUnlocked ? '' : 'locked'}`;
+                
+                if (isUnlocked) {
+                    card.style.borderTopColor = b.color;
+                    card.style.boxShadow = `0 15px 40px rgba(0,0,0,0.6), inset 0 0 30px ${b.color}22`;
+                    card.innerHTML = `
+                        <div class="boss-shadow-pedestal">
+                            <div class="boss-art-wrapper">${b.art}</div>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; margin-bottom: 15px;">
+                            <h3 style="color: ${b.color}; margin: 0; font-size: 2.2rem;">${b.name}</h3>
+                            <span style="color: #000; background: ${b.color}; font-weight: 900; padding: 8px 15px; font-family: var(--font-mono); font-size: 1rem; letter-spacing: 0.1em; border-radius: 4px; box-shadow: 0 0 15px ${b.color};">DECRYPTED</span>
+                        </div>
+                        <div class="boss-stats">
+                            <div>ENCOUNTER SECURED: <span>${mockDate}</span></div>
+                            <div>ANOMALY STATUS: <span style="color: ${b.color};">NEUTRALIZED</span></div>
+                        </div>
+                        <div class="equation-box" style="font-size: 1.8rem; padding: 20px; margin: 20px 0; border-color: ${b.color}66; box-shadow: inset 0 0 40px ${b.color}22;">${b.eq}</div>
+                        <div class="edu-section">
+                            <div class="edu-label">Mathematical Profile</div>
+                            <p>${b.desc}</p>
+                            <div class="edu-label" style="margin-top: 15px;">Archival Lore</div>
+                            <p style="color: rgba(255,255,255,0.9); font-style: italic;">"${b.lore}"</p>
+                        </div>
+                        <div class="gameplay-note" style="border-left-color: ${b.color}; background: rgba(255,255,255,0.05);"><strong>Combat Strategy:</strong> ${b.strategy}</div>
+                    `;
+                } else {
+                    card.innerHTML = `
+                        <div class="boss-shadow-pedestal">
+                            <div class="boss-shadow" style="filter: brightness(0) drop-shadow(0 0 10px rgba(0,0,0,0.8)); opacity: 0.4;">
+                                ${b.art}
+                            </div>
+                        </div>
+                        <div class="lock-overlay">
+                            <div class="lock-title">CLASSIFIED</div>
+                            <p style="text-align: center; font-size: 1.8rem; color: #fff; margin-top: 20px; letter-spacing: 0.2em;">UNKNOWN ANOMALY</p>
+                            <p style="text-align: center; font-size: 1.1rem; font-family: var(--font-mono); color: var(--text-dim); margin-top: 15px;">Defeat entity in simulation to decrypt archival data.</p>
+                        </div>
+                    `;
+                }
+                bossGrid.appendChild(card);
+            });
+
+            // --- 4. CONCEPT NETWORK INITIALIZATION ---
+            initNetwork();
+            initSkinsVault();
+
+            // Interactive 3D Card Hover Effect — rAF-throttled
+            document.querySelectorAll('.interactive-card').forEach(card => {
+                let pending = null, ticking = false;
+                function applyTilt() {
+                    if (pending) {
+                        card.style.transform = `perspective(1200px) rotateX(${pending.rotateX}deg) rotateY(${pending.rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+                        pending = null;
+                    }
+                    ticking = false;
+                }
+                card.addEventListener('mousemove', e => {
+                    let rect = card.getBoundingClientRect();
+                    let x = e.clientX - rect.left; let y = e.clientY - rect.top;
+                    let centerX = rect.width / 2; let centerY = rect.height / 2;
+                    pending = { rotateX: ((y - centerY) / centerY) * -3, rotateY: ((x - centerX) / centerX) * 3 };
+                    if (!ticking) { ticking = true; requestAnimationFrame(applyTilt); }
+                });
+                card.addEventListener('mouseleave', () => {
+                    pending = null; ticking = false;
+                    card.style.transform = `perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)`;
+                });
+            });
+        });
+
+        // --- 5. CONCEPT NETWORK LOGIC ---
+        
+        // Check unlock status (Probability is the root and always unlocked)
+        function checkNodeUnlocked(id) {
+            if (id === 'prob') return true; 
+            return localStorage.getItem('vault_unlocked_' + id) === 'true';
+        }
+
+        // Expanded Node Network with Costs and Prerequisites
+        const vaultNodes = [
+            { id: 'prob', label: 'Probability', x: -450, y: 0, cost: 0, req: null },
+            { id: 'rw', label: 'Random Walk', x: -300, y: 0, cost: 5, req: 'prob' },
+            { id: 'bm', label: 'Brownian Motion', x: -150, y: 0, cost: 10, req: 'rw' },
+            { id: 'drift', label: 'Drift (μ)', x: 0, y: -100, cost: 15, req: 'bm' },
+            { id: 'vol', label: 'Volatility (σ)', x: 0, y: 100, cost: 15, req: 'bm' },
+            { id: 'gbm', label: 'Geometric BM', x: 150, y: 0, cost: 25, req: ['drift', 'vol'] },
+            { id: 'mart', label: 'Martingales', x: 150, y: 150, cost: 30, req: 'vol' },
+            { id: 'ito', label: 'Itô Calculus', x: 300, y: 0, cost: 50, req: 'gbm' },
+            { id: 'transforms', label: 'Transformations', x: 450, y: 0, cost: 40, req: 'ito' },
+            { id: 'log', label: 'Log Form', x: 600, y: -100, cost: 30, req: 'transforms' },
+            { id: 'sq', label: 'Squared Form', x: 600, y: 100, cost: 30, req: 'transforms' },
+            { id: 'jump', label: 'Jump Processes', x: 450, y: 150, cost: 60, req: 'mart' },
+            { id: 'swan', label: 'Black Swan', x: 600, y: 250, cost: 100, req: 'jump' }
+        ];
+
+        const vaultLinks = [
+            { s: 'prob', t: 'rw' }, { s: 'rw', t: 'bm' }, 
+            { s: 'bm', t: 'drift' }, { s: 'bm', t: 'vol' },
+            { s: 'drift', t: 'gbm' }, { s: 'vol', t: 'gbm' }, { s: 'vol', t: 'mart' },
+            { s: 'gbm', t: 'ito' }, { s: 'ito', t: 'transforms' },
+            { s: 'transforms', t: 'log' }, { s: 'transforms', t: 'sq' },
+            { s: 'mart', t: 'jump' }, { s: 'jump', t: 'swan' }
+        ];
+
+        const nodeData = {
+            'prob': {
+                title: 'Probability & Expectation',
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">E[X] = Σ x<sub>i</sub> p<sub>i</sub></div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Probability measures how likely an event is to happen. Expectation is the "average" outcome if you repeated the event infinitely. It is the bedrock of forecasting the unknown.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> Your final score and survival time are essentially probabilistic expectations based on your reaction speeds and the simulation's randomness.</div>
+                `
+            },
+            'rw': { 
+                title: 'Random Walk', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">S<sub>n</sub> = S<sub>n-1</sub> + X<sub>n</sub></div>
+                    <div class="mini-viz"><div class="viz-dot" style="animation: floatOrb 2s infinite steps(5);"></div></div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Imagine flipping a coin: heads you step forward, tails you step back. A Random Walk traces that path over time. It is the fundamental building block of unpredictable systems.</p>
+                    <div class="edu-label">Advanced Theory</div>
+                    <p>By Donsker's Theorem, as the step size and time interval approach zero, the appropriately scaled random walk converges mathematically to a continuous Wiener Process (Brownian Motion).</p>
+                `
+            },
+            'bm': { 
+                title: 'Brownian Motion', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">dW<sub>t</sub> ∼ N(0, dt)</div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>What happens if you take infinitely small random steps infinitely fast? The jagged path smooths out into a continuous curve, but it remains entirely unpredictable.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> The pure randomness that pushes your ship up and down is generated directly by a simulated Wiener Process.</div>
+                `
+            },
+            'drift': { 
+                title: 'Drift (μ)', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">μS<sub>t</sub>dt</div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Drift is the underlying current of a system. If you drop a leaf in a river, the noise is the leaf spinning randomly, but the Drift is the current carrying it downstream.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> Your vertical controls map directly to the μ variable. You are the deterministic force fighting against the volatility.</div>
+                `
+            },
+            'vol': { 
+                title: 'Volatility (σ)', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">σS<sub>t</sub>dW<sub>t</sub></div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Volatility measures the intensity of randomness. High volatility means the jumps up and down are violent and large. It measures uncertainty, not direction.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> Localized volatility zones directly multiply this scaling factor, threatening structural collapse.</div>
+                `
+            },
+            'gbm': { 
+                title: 'Geometric BM', 
+                text: `
+                    <div class="equation-box small-eq" style="font-size: 1.5rem; margin: 15px 0;">dS<sub>t</sub> = μS<sub>t</sub>dt + σS<sub>t</sub>dW<sub>t</sub></div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Normal Brownian Motion can go below zero. Geometric Brownian Motion fixes this by ensuring the random changes are percentages (like gaining 2%) rather than flat amounts.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> This specific SDE is what prevents your ship from mathematically hitting zero natively.</div>
+                `
+            },
+            'mart': { 
+                title: 'Martingales', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">E[X<sub>t+1</sub> | X<sub>t</sub>] = X<sub>t</sub></div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>A sequence where the best prediction for the future is simply where you are right now. A perfectly "fair" game.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> Powers the Revive collectible, literally resetting the simulation's mathematical expectation back to your current state upon death.</div>
+                `
+            },
+            'ito': { 
+                title: 'Itô Calculus', 
+                text: `
+                    <div class="equation-box small-eq" style="font-size: 1.2rem; padding: 15px; margin: 15px 0;">df = (∂f/∂t + μ∂f/∂x + ½σ²∂²f/∂x²)dt + ...</div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Standard high school calculus completely breaks down when dealing with random paths. Itô Calculus is the specialized math invented to tame and measure this chaos.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> The Itô Architect actively uses this derivative shift to warp the screen and background elements.</div>
+                ` 
+            },
+            'transforms': { 
+                title: 'Transformations', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">f(S<sub>t</sub>)</div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Applying a mathematical function to a stochastic process can completely alter its structural rules, bounds, and behaviors.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> These are the physical portals you fly through to alter the reality of the simulation.</div>
+                ` 
+            },
+            'log': { 
+                title: 'Log Form', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">ln(S<sub>t</sub>)</div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Taking the natural logarithm compresses massive exponential explosions into simple, manageable straight lines.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> Entering the Log Portal applies this math, generating extreme navigational difficulty but massive score multipliers.</div>
+                `
+            },
+            'sq': { 
+                title: 'Squared Form', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">S<sub>t</sub>²</div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>Squaring a number makes it substantially larger. In stochastic processes, this explosion of scale makes tiny random vibrations feel like nothing.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> Entering the S² portal makes you invincible and massive, destroying obstacles on contact.</div>
+                `
+            },
+            'jump': { 
+                title: 'Jump Processes', 
+                text: `
+                    <div class="equation-box small-eq" style="margin: 15px 0;">dN<sub>t</sub> (Poisson)</div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>While Brownian motion creates a continuous line, a Jump Process introduces sudden, instantaneous teleportations from one value to another.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> The mathematical framework required to generate unpredictable Black Swan anomalies.</div>
+                `
+            },
+            'swan': { 
+                title: 'Black Swan', 
+                text: `
+                    <div class="equation-box small-eq" style="font-size: 1.5rem; margin: 15px 0;">J<sub>t</sub>dN<sub>t</sub></div>
+                    <div class="edu-label">Beginner Analysis</div>
+                    <p>A Black Swan is a highly improbable event with massive consequences that falls entirely outside standard expectations.</p>
+                    <div class="gameplay-note"><strong>Relation to Gameplay:</strong> The catastrophic tracking laser of the Black Swan anomaly represents this exact discontinuous jump in the code.</div>
+                `
+            }
+        };
+
+        let netActiveNode = null, netPanX = 0, netPanY = 0;
+        let isDraggingNet = false, lastMouseX = 0, lastMouseY = 0;
+        let netMouseX = 0, netMouseY = 0;
+        let netCanvas, netCtx;
+        
+        // NEW: Array to hold canvas animation rings
+        let unlockPulses = []; 
+
+        function initNetwork() {
+            netCanvas = document.getElementById('network-canvas');
+            netCtx = netCanvas.getContext('2d');
+            
+            function resizeNet() {
+                netCanvas.width = netCanvas.parentElement.clientWidth;
+                netCanvas.height = netCanvas.parentElement.clientHeight;
+            }
+            window.addEventListener('resize', resizeNet); resizeNet();
+
+            netCanvas.addEventListener('mousedown', e => {
+                isDraggingNet = true;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            });
+            window.addEventListener('mouseup', () => { isDraggingNet = false; });
+            
+            netCanvas.addEventListener('mousemove', e => {
+                let rect = netCanvas.getBoundingClientRect();
+                netMouseX = e.clientX - rect.left; 
+                netMouseY = e.clientY - rect.top;
+                
+                if(isDraggingNet) {
+                    netPanX += (e.clientX - lastMouseX);
+                    netPanY += (e.clientY - lastMouseY);
+                    lastMouseX = e.clientX;
+                    lastMouseY = e.clientY;
+                }
+            });
+
+            netCanvas.addEventListener('click', e => {
+                let cx = netCanvas.width / 2 + netPanX;
+                let cy = netCanvas.height / 2 + netPanY;
+                for (let n of vaultNodes) {
+                    let dx = netMouseX - (cx + n.x), dy = netMouseY - (cy + n.y);
+                    if (Math.sqrt(dx*dx + dy*dy) < 40) {
+                        openNetworkPanel(n.id); return;
+                    }
+                }
+            });
+
+            requestAnimationFrame(drawNetwork);
+        }
+
+        function drawNetwork() {
+            if (document.getElementById('tab-network').classList.contains('active')) {
+                netCtx.clearRect(0, 0, netCanvas.width, netCanvas.height);
+                
+                let cx = netCanvas.width / 2 + netPanX;
+                let cy = netCanvas.height / 2 + netPanY;
+
+                // Draw Links
+                netCtx.lineWidth = 2;
+                for (let link of vaultLinks) {
+                    let s = vaultNodes.find(n => n.id === link.s);
+                    let t = vaultNodes.find(n => n.id === link.t);
+                    
+                    let sUnlocked = checkNodeUnlocked(s.id);
+                    let tUnlocked = checkNodeUnlocked(t.id);
+
+                    netCtx.beginPath(); netCtx.moveTo(cx + s.x, cy + s.y); netCtx.lineTo(cx + t.x, cy + t.y);
+                    if (sUnlocked && tUnlocked) { netCtx.strokeStyle = 'rgba(127, 255, 140, 0.6)'; netCtx.shadowBlur = 10; netCtx.shadowColor = '#7fff8c'; } 
+                    else if (sUnlocked) { netCtx.strokeStyle = 'rgba(255, 51, 102, 0.4)'; netCtx.shadowBlur = 0; }
+                    else { netCtx.strokeStyle = 'rgba(255, 255, 255, 0.05)'; netCtx.shadowBlur = 0; }
+                    netCtx.stroke();
+                }
+
+                // NEW: Render Unlock Shockwaves
+                for (let i = unlockPulses.length - 1; i >= 0; i--) {
+                    let p = unlockPulses[i];
+                    p.r += 4; p.alpha -= 0.02;
+                    if (p.alpha <= 0) { unlockPulses.splice(i, 1); continue; }
+                    netCtx.beginPath(); netCtx.arc(cx + p.x, cy + p.y, p.r, 0, Math.PI * 2);
+                    netCtx.strokeStyle = `rgba(127, 255, 140, ${p.alpha})`; netCtx.lineWidth = 4 * p.alpha;
+                    netCtx.shadowBlur = 20; netCtx.shadowColor = '#7fff8c';
+                    netCtx.stroke(); netCtx.shadowBlur = 0;
+                }
+
+                // Draw Nodes
+                for (let n of vaultNodes) {
+                    let isHover = Math.hypot(netMouseX - (cx + n.x), netMouseY - (cy + n.y)) < 40;
+                    let isUnlocked = checkNodeUnlocked(n.id);
+
+                    netCtx.beginPath(); netCtx.arc(cx + n.x, cy + n.y, 30, 0, Math.PI * 2);
+                    
+                    if (isUnlocked) {
+                        netCtx.fillStyle = isHover ? 'rgba(127, 255, 140, 0.3)' : 'rgba(6, 8, 32, 0.9)';
+                        netCtx.strokeStyle = netActiveNode === n.id ? '#ffffff' : '#7fff8c';
+                        netCtx.lineWidth = netActiveNode === n.id ? 4 : 2;
+                        netCtx.shadowBlur = 20; netCtx.shadowColor = '#7fff8c';
+                    } else {
+                        netCtx.fillStyle = isHover ? 'rgba(255, 51, 102, 0.2)' : 'rgba(0, 0, 0, 0.8)'; 
+                        netCtx.strokeStyle = '#ff3366';
+                        netCtx.lineWidth = 2; netCtx.shadowBlur = 10; netCtx.shadowColor = '#ff3366';
+                    }
+                    netCtx.fill(); netCtx.stroke(); netCtx.shadowBlur = 0;
+
+                    // Draw Icon
+                    netCtx.fillStyle = '#fff'; netCtx.font = '20px serif'; netCtx.textAlign = 'center'; netCtx.textBaseline = 'middle';
+                    if(isUnlocked) { netCtx.fillText('∫', cx + n.x, cy + n.y); } 
+                    else { netCtx.fillStyle = '#ff3366'; netCtx.fillText('?', cx + n.x, cy + n.y); }
+
+                    // Draw Label
+                    netCtx.fillStyle = isUnlocked ? '#fff' : 'rgba(255,255,255,0.3)';
+                    netCtx.font = '16px ' + getComputedStyle(document.body).getPropertyValue('--font-display');
+                    netCtx.fillText(n.label, cx + n.x, cy + n.y + 55);
+                }
+            }
+            requestAnimationFrame(drawNetwork);
+        }
+
+        // Global purchase function attached to window
+        window.purchaseNode = function(id, cost) {
+            let availableNodes = parseInt(localStorage.getItem('stochastic_nodes') || '0');
+            if (availableNodes >= cost) {
+                localStorage.setItem('stochastic_nodes', availableNodes - cost);
+                localStorage.setItem('vault_unlocked_' + id, 'true');
+                
+                // NEW: Trigger canvas shockwave animation
+                let nodeObj = vaultNodes.find(n => n.id === id);
+                if (nodeObj) unlockPulses.push({ x: nodeObj.x, y: nodeObj.y, r: 30, alpha: 1 });
+
+                openNetworkPanel(id); // Refresh panel
+                
+                // NEW: Trigger CSS panel flash animation
+                let statusEl = document.getElementById('np-status');
+                statusEl.classList.remove('flash-active');
+                void statusEl.offsetWidth; // Force CSS reflow to restart animation
+                statusEl.classList.add('flash-active');
+                statusEl.innerText = "DECRYPTION SUCCESSFUL";
+
+                // Concept Network nodes are also skin-unlock conditions (Wiener Entity, Martingale
+                // Construct, Tail Risk Incarnate, Chaos Attractor) — check immediately after every purchase.
+                checkNodeDependentSkinUnlocks();
+            }
+        };
+
+        function openNetworkPanel(id) {
+            netActiveNode = id;
+            let node = vaultNodes.find(n => n.id === id);
+            let d = nodeData[id];
+            let isUnlocked = checkNodeUnlocked(id);
+            let availableNodes = parseInt(localStorage.getItem('stochastic_nodes') || '0');
+            
+            document.getElementById('np-title').innerText = d.title;
+            let statusEl = document.getElementById('np-status');
+            statusEl.classList.remove('flash-active'); // Ensure flash is removed when just viewing
+            
+            if (isUnlocked) {
+                statusEl.innerText = 'DECRYPTED';
+                statusEl.style.color = 'var(--accent-green)';
+                document.getElementById('np-content').innerHTML = d.text;
+            } else {
+                statusEl.innerText = 'LOCKED';
+                statusEl.style.color = 'var(--accent-red)';
+                
+                // Check if requirements are met
+                let reqsMet = true;
+                if (Array.isArray(node.req)) {
+                    reqsMet = node.req.every(r => checkNodeUnlocked(r));
+                } else if (node.req) {
+                    reqsMet = checkNodeUnlocked(node.req);
+                }
+
+                if (!reqsMet) {
+                    document.getElementById('np-content').innerHTML = `
+                        <div style="text-align:center; padding: 40px 20px;">
+                            <svg viewBox="0 0 24 24" width="60" height="60" stroke="#ff3366" stroke-width="2" fill="none" style="margin-bottom:20px; opacity:0.5;">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                            <p style="color: var(--text-dim); font-family: var(--font-mono);">PRE-REQUISITE KNOWLEDGE REQUIRED</p>
+                            <p style="font-size: 0.9rem; color: #ff3366; margin-top: 10px;">Decrypt preceding network nodes to access this data.</p>
+                        </div>`;
+                } else {
+                    let canAfford = availableNodes >= node.cost;
+                    document.getElementById('np-content').innerHTML = `
+                        <div style="text-align:center; padding: 20px 10px;">
+                            <svg viewBox="0 0 24 24" width="60" height="60" stroke="var(--accent-gold)" stroke-width="2" fill="none" style="margin-bottom:20px; opacity:0.8;">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                            <p style="color: var(--accent-gold); font-family: var(--font-mono); margin-bottom: 20px;">NODE ACCESSIBLE</p>
+                            
+                            <div style="display: flex; justify-content: space-between; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.1);">
+                                <span style="color: var(--text-dim);">Decryption Cost:</span>
+                                <span style="color: #fff; font-family: var(--font-mono);">${node.cost} Nodes</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.1);">
+                                <span style="color: var(--text-dim);">Available Data:</span>
+                                <span style="color: ${canAfford ? 'var(--accent-green)' : 'var(--accent-red)'}; font-family: var(--font-mono);">${availableNodes} Nodes</span>
+                            </div>
+                            
+                            <button 
+                                onclick="purchaseNode('${id}', ${node.cost})" 
+                                style="width: 100%; padding: 15px; background: ${canAfford ? 'rgba(127, 255, 140, 0.1)' : 'rgba(255, 51, 102, 0.1)'}; border: 1px solid ${canAfford ? 'var(--accent-green)' : 'var(--accent-red)'}; color: ${canAfford ? 'var(--accent-green)' : 'var(--accent-red)'}; font-family: var(--font-display); font-size: 1.1rem; cursor: ${canAfford ? 'pointer' : 'not-allowed'}; transition: 0.3s; text-transform: uppercase;"
+                                ${!canAfford ? 'disabled' : ''}
+                            >
+                                ${canAfford ? 'DECRYPT NODE' : 'INSUFFICIENT DATA'}
+                            </button>
+                        </div>`;
+                }
+            }
+            document.getElementById('network-panel').classList.add('active');
+        }
+
+        function closeNetworkPanel() {
+            netActiveNode = null;
+            document.getElementById('network-panel').classList.remove('active');
+        }
+
+        // --- 6. MATHEMATICAL SKINS VAULT ---
+        const RARITY = {
+            common:    { label: 'COMMON',    color: '#cdd6e0', glow: 'rgba(205,214,224,0.45)', particles: 4 },
+            rare:      { label: 'RARE',      color: '#00f3ff', glow: 'rgba(0,243,255,0.55)',  particles: 7 },
+            epic:      { label: 'EPIC',      color: '#b000ff', glow: 'rgba(176,0,255,0.6)',   particles: 10 },
+            legendary: { label: 'LEGENDARY', color: '#ffd700', glow: 'rgba(255,215,0,0.7)',   particles: 14 },
+            mythic:    { label: 'MYTHIC',    color: '#ff3366', glow: 'rgba(255,51,102,0.8)',  particles: 20 }
+        };
+
+        function bossArt(id) { let b = bosses.find(x => x.id === id); return b ? b.art : ''; }
+        function bossColor(id) { let b = bosses.find(x => x.id === id); return b ? b.color : '#fff'; }
+
+        const SKINS = [
+            // --- CORE PROCESS SKINS ---
+            {
+                id: 'mu-navigator', name: 'μ NAVIGATOR', category: 'core', rarity: 'common', symbol: 'μ',
+                unlockType: 'default', unlockLabel: 'Available from the start',
+                tagline: "The deterministic baseline every trajectory in the simulation is measured against.",
+                what: "Mu (μ) is the drift coefficient — the steady, predictable component of a stochastic process. It is the part of the equation that does not depend on chance.",
+                why: "Every real-world process, from interest rates to population growth, has a deterministic trend hidden inside its noise. Isolating drift from randomness is the first step toward understanding any stochastic model.",
+                connection: "In the core SDE, dS<sub>t</sub> = μS<sub>t</sub>dt + σS<sub>t</sub>dW<sub>t</sub>, the μS<sub>t</sub>dt term is the Navigator's entire identity — pure, unshaken direction with zero variance.",
+                gameplay: "This is the default ship you fly with no transformations or anomalies active. Your vertical control directly manipulates this drift term.",
+                preview: `<div style="position:relative; width:120px; height:120px; display:flex; align-items:center; justify-content:center; animation: floatOrb 4s ease-in-out infinite;">
+                    <svg width="100" height="100" viewBox="-50 -50 100 100">
+                        <polygon points="0,-35 35,35 -35,35" fill="rgba(0,0,0,0.5)" stroke="#7fff8c" stroke-width="3" style="filter:drop-shadow(0 0 18px #7fff8c);"/>
+                    </svg>
+                    <span style="position:absolute; font-family:serif; font-size:26px; color:#fff; text-shadow:0 0 15px #7fff8c;">μ</span>
+                </div>`
+            },
+            {
+                id: 'sigma-volatility-core', name: 'σ VOLATILITY CORE', category: 'core', rarity: 'rare', symbol: 'σ',
+                unlockType: 'skin', unlockLabel: 'Travel more than 15,000m (lifetime total)',
+                tagline: "A crystalline lattice built entirely from amplified uncertainty.",
+                what: "Sigma (σ) is the volatility coefficient — it controls how violently a process can swing away from its expected path.",
+                why: "Volatility is one of the most-quoted numbers in finance because it quantifies risk itself. A higher σ means wider, less predictable outcomes, which is exactly why options pricing and risk management revolve around estimating it correctly.",
+                connection: "In dS<sub>t</sub> = μS<sub>t</sub>dt + σS<sub>t</sub>dW<sub>t</sub>, σ scales the random shock dW<sub>t</sub>. Set σ to zero and the world becomes perfectly deterministic; raise it and chaos takes over.",
+                gameplay: "Equipping this skin is a badge of having weathered the game's harshest volatility spike without losing control.",
+                preview: `<div style="position:relative; width:130px; height:130px; display:flex; align-items:center; justify-content:center; animation: floatOrb 2.4s ease-in-out infinite;">
+                    <svg width="110" height="110" viewBox="-55 -55 110 110" style="animation: spinOrbit 5s linear infinite;">
+                        <polygon points="0,-45 30,-15 18,40 -18,40 -30,-15" fill="rgba(0,243,255,0.15)" stroke="#00f3ff" stroke-width="3" style="filter:drop-shadow(0 0 18px #00f3ff);"/>
+                        <polygon points="0,-25 15,-5 9,22 -9,22 -15,-5" fill="rgba(255,255,255,0.2)" stroke="#00f3ff" stroke-width="1.5"/>
+                    </svg>
+                    <span style="position:absolute; font-family:serif; font-size:24px; color:#fff; text-shadow:0 0 15px #00f3ff;">σ</span>
+                </div>`
+            },
+            {
+                id: 'wiener-entity', name: 'WIENER ENTITY', category: 'core', rarity: 'rare', symbol: 'W',
+                unlockType: 'node', nodeId: 'bm', unlockLabel: 'Unlock the Brownian Motion node in the Concept Network',
+                tagline: "Pure flowing energy — pure Brownian motion given a shape.",
+                what: "The Wiener process (W<sub>t</sub>) is the mathematical formalization of Brownian motion: a continuous path made of independent, infinitesimally small random steps.",
+                why: "Almost every stochastic model used in physics, biology, and finance is built on top of the Wiener process. It is the foundational object from which more complex random behavior is constructed.",
+                connection: "Every dW<sub>t</sub> term highlighted throughout this Vault traces back to this single object — a continuous, nowhere-differentiable random walk.",
+                gameplay: "Its trail mirrors the same continuous stochastic motion that drives your ship's flight path every single frame, win or lose.",
+                preview: `<div style="position:relative; width:130px; height:130px; display:flex; align-items:center; justify-content:center; animation: floatOrb 3s ease-in-out infinite alternate;">
+                    <svg width="120" height="120" viewBox="-60 -60 120 120">
+                        <path d="M-50,10 Q-30,-30 -10,5 T30,-10 T50,15" stroke="#fff" stroke-width="2.5" fill="none" style="filter:drop-shadow(0 0 12px #00f3ff); animation: pulseOpacity 1.6s infinite alternate;"/>
+                        <circle cx="0" cy="0" r="14" fill="#fff" style="filter:drop-shadow(0 0 16px #fff);"/>
+                    </svg>
+                </div>`
+            },
+            {
+                id: 'martingale-construct', name: 'MARTINGALE CONSTRUCT', category: 'core', rarity: 'rare', symbol: 'E',
+                unlockType: 'node', nodeId: 'mart', unlockLabel: 'Unlock the Martingales node in the Concept Network',
+                tagline: "Floating probability rings in perfect, fair-game equilibrium.",
+                what: "A martingale is a stochastic process where the best prediction of tomorrow's value is exactly today's value — no edge, no bias, a perfectly fair game.",
+                why: "Martingales are the mathematical definition of a fair game and underpin modern financial theory, including arbitrage-free pricing.",
+                connection: "E[X<sub>t</sub>] = X<sub>t</sub> is the defining property of a martingale: expectation conditioned on the present simply returns the present.",
+                gameplay: "This is exactly why the Martingale Recovery collectible exists — it returns you to equilibrium after a hit, just as the mathematics promises.",
+                preview: `<div class="art-martingale" style="width:110px; height:110px;">
+                    <div class="art-martingale-orbit" style="width:170px; height:170px;"></div>
+                </div>`
+            },
+
+            // --- TRANSFORMATION SKINS (exact gameplay portal designs) ---
+            {
+                id: 'log-phantom', name: 'LOGARITHMIC PHANTOM', category: 'transform', rarity: 'epic', symbol: 'ln(S)',
+                unlockType: 'transform_count', transformType: 'log', unlockLabel: 'Discover the Logarithmic transformation 10 times',
+                tagline: "Distorted geometry where multiplicative growth collapses into additive simplicity.",
+                what: "Taking the logarithm of a stochastic process converts multiplicative dynamics into additive dynamics, which is far easier to analyze.",
+                why: "Financial returns are almost always modeled in log-space because log-returns are additive over time and statistically better behaved than raw price changes.",
+                connection: "Applying Itô's Lemma to ln(S<sub>t</sub>) reveals a −½σ² correction term — proof that naive intuition about averages breaks under multiplicative randomness.",
+                gameplay: "Entering this transformation amplifies variance and penalizes drift in-game, mirroring the real trade-off of working in log-space.",
+                preview: `<div class="art-portal" style="--portal-color: #ff3366; --portal-shadow: #ff0000; width:130px; height:130px;">
+                    <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">ln(S)</div>
+                    <div class="art-portal-orbit" style="width:190px; height:190px;"><span>−</span><span>½</span><span>σ²</span></div>
+                </div>`
+            },
+            {
+                id: 'quadratic-expansion', name: 'QUADRATIC EXPANSION', category: 'transform', rarity: 'epic', symbol: 'S²',
+                unlockType: 'transform_count', transformType: 'squared', unlockLabel: 'Discover the Squared transformation 10 times',
+                tagline: "A massive golden crystal structure — the exact final gameplay design, scaled to legendary proportions.",
+                what: "Squaring a process, S<sub>t</sub>², expands its magnitude dramatically while making small local fluctuations comparatively insignificant against the total size.",
+                why: "Squared processes appear throughout statistics — variance itself is defined as an expectation of a squared deviation, making this transformation foundational to how spread is measured.",
+                connection: "Itô's Lemma applied to S<sub>t</sub>² produces an additional 2σ²dt drift term out of nowhere — a direct, visible consequence of stochastic calculus diverging from ordinary calculus.",
+                gameplay: "This is the ultimate in-run transformation: briefly invulnerable, obliterating obstacles on contact. The preview above uses the identical visual design seen in active gameplay.",
+                preview: `<div class="art-portal" style="--portal-color: #ffd700; --portal-shadow: #00f3ff; width:130px; height:130px;">
+                    <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">Sₜ²</div>
+                    <div class="art-portal-orbit" style="width:190px; height:190px;"><span>+</span><span>σ²</span><span>S²</span></div>
+                </div>`
+            },
+            {
+                id: 'exponential-ascendant', name: 'EXPONENTIAL ASCENDANT', category: 'transform', rarity: 'epic', symbol: 'e^S',
+                unlockType: 'transform_count', transformType: 'exponential', unlockLabel: 'Discover the Exponential transformation 10 times',
+                tagline: "Accelerated yield given form — growth compounding upon itself.",
+                what: "The exponential of a process, e<sup>S<sub>t</sub></sup>, models compounding growth, where the rate of change is always proportional to the current value.",
+                why: "Exponential growth describes compound interest, population dynamics, and viral spread — understanding it is essential to almost every applied science.",
+                connection: "Geometric Brownian Motion, the standard model for stock prices, is literally defined as the exponential of a drifted Wiener process.",
+                gameplay: "Triggering this transformation rapidly multiplies your score generation, mirroring compounding growth in real time.",
+                preview: `<div class="art-portal" style="--portal-color: #7fff8c; --portal-shadow: #ffd700; width:130px; height:130px;">
+                    <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">e^S</div>
+                    <div class="art-portal-orbit" style="width:190px; height:190px;"><span>e</span><span>↑</span><span>μ</span></div>
+                </div>`
+            },
+            {
+                id: 'mean-reversion-anchor', name: 'MEAN REVERSION ANCHOR', category: 'transform', rarity: 'epic', symbol: 'θ',
+                unlockType: 'transform_count', transformType: 'mean_reversion', unlockLabel: 'Discover the Mean Reversion transformation 10 times',
+                tagline: "A stabilizing pull that always drags the process back toward equilibrium.",
+                what: "Mean-reverting processes, such as the Ornstein-Uhlenbeck process, are pulled back toward a long-run average (μ) whenever they drift too far away.",
+                why: "Interest rates, commodity prices, and biological signals rarely wander forever — mean reversion is the standard tool for modeling quantities with a natural equilibrium.",
+                connection: "θ(μ − S<sub>t</sub>) is the restoring force: the further S<sub>t</sub> strays from μ, the stronger the pull back, exactly like a spring.",
+                gameplay: "While active, this transformation automatically stabilizes your vertical position toward the center of the track.",
+                preview: `<div class="art-portal" style="--portal-color: #0055ff; --portal-shadow: #00f3ff; width:130px; height:130px;">
+                    <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">θ(μ-S)</div>
+                    <div class="art-portal-orbit" style="width:190px; height:190px;"><span>θ</span><span>↔</span><span>μ</span></div>
+                </div>`
+            },
+            {
+                id: 'volatility-compression-core', name: 'VOLATILITY COMPRESSION CORE', category: 'transform', rarity: 'epic', symbol: 'σ↓',
+                unlockType: 'transform_count', transformType: 'vol_compression', unlockLabel: 'Discover the Volatility Compression transformation 10 times',
+                tagline: "A dampening field that forces chaos into a narrow, low-risk band.",
+                what: "Volatility compression artificially shrinks σ, suppressing the magnitude of random fluctuations in a process.",
+                why: "Risk managers and central banks both actively try to compress volatility in real markets — understanding how suppressing σ changes outcomes is core to risk control.",
+                connection: "Setting σ↓ in dS<sub>t</sub> = μS<sub>t</sub>dt + σS<sub>t</sub>dW<sub>t</sub> directly shrinks the noise term, smoothing the path toward something closer to pure drift.",
+                gameplay: "This transformation visibly smooths your flight trail, removing the jagged noise that normally defines your trajectory.",
+                preview: `<div class="art-portal" style="--portal-color: #b000ff; --portal-shadow: #ffffff; width:130px; height:130px;">
+                    <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">σ↓</div>
+                    <div class="art-portal-orbit" style="width:190px; height:190px;"><span>↓</span><span>σ</span><span>k</span></div>
+                </div>`
+            },
+            {
+                id: 'drift-amplifier', name: 'DRIFT AMPLIFIER', category: 'transform', rarity: 'epic', symbol: 'μ↑',
+                unlockType: 'transform_count', transformType: 'drift_amp', unlockLabel: 'Discover the Drift Amplification transformation 10 times',
+                tagline: "Directional momentum given overwhelming priority over chance.",
+                what: "Amplifying μ increases the deterministic component of a process until it dominates the random component entirely.",
+                why: "Distinguishing genuine trend from noise is one of the hardest problems in statistics — amplifying μ artificially demonstrates exactly what a real trend looks like once noise is overpowered.",
+                connection: "When μ is large relative to σ, dS<sub>t</sub> = μS<sub>t</sub>dt + σS<sub>t</sub>dW<sub>t</sub> behaves almost like a purely deterministic equation, dS<sub>t</sub> = μS<sub>t</sub>dt.",
+                gameplay: "Your control inputs are magnified dramatically while this transformation is active, letting drift overpower the stochastic noise of the world around you.",
+                preview: `<div class="art-portal" style="--portal-color: #00ffaa; --portal-shadow: #00ffaa; width:130px; height:130px;">
+                    <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">μ↑</div>
+                    <div class="art-portal-orbit" style="width:190px; height:190px;"><span>↑</span><span>μ</span><span>S</span></div>
+                </div>`
+            },
+            {
+                id: 'gravity-well', name: 'GRAVITY WELL', category: 'transform', rarity: 'epic', symbol: 'μ→',
+                unlockType: 'transform_count', transformType: 'magnet', unlockLabel: 'Discover the Drift Field transformation 10 times',
+                tagline: "Positive drift given enough strength to bend the world toward it.",
+                what: "This represents drift acting not just on your own trajectory, but as an attractive force pulling nearby states toward the process — drift reinterpreted as gravity.",
+                why: "In coupled stochastic systems, one process's drift can influence others nearby — a foundational idea behind correlated and interacting particle systems.",
+                connection: "μS<sub>t</sub>dt is reinterpreted here as an attraction term rather than a simple directional push, foreshadowing more advanced multi-process models.",
+                gameplay: "While active, this transformation pulls every nearby orb, node, and collectible directly toward you.",
+                preview: `<div class="art-portal" style="--portal-color: #7fff8c; --portal-shadow: #ffd700; width:130px; height:130px;">
+                    <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">μ→</div>
+                    <div class="art-portal-orbit" style="width:190px; height:190px;"><span>μ</span><span>→</span><span>S</span></div>
+                </div>`
+            },
+            {
+                id: 'ito-realm-avatar', name: 'ITÔ REALM AVATAR', category: 'transform', rarity: 'epic', symbol: 'ITÔ',
+                unlockType: 'transform_count', transformType: 'realm', unlockLabel: 'Trigger the Itô Realm transformation 10 times',
+                tagline: "A being native to a reality where the rules of ordinary calculus no longer apply.",
+                what: "The Itô Realm represents a space where the second-order term in Itô's Lemma — the correction ordinary calculus misses — physically reshapes the environment.",
+                why: "Itô calculus is what separates stochastic differential equations from ordinary ones; without it, modern derivative pricing and most of quantitative finance would not exist.",
+                connection: "The ½σ²∂²f/∂x² term is exactly what distorts the grid in this transformation — a visualization of the one correction ordinary calculus cannot account for.",
+                gameplay: "Entering this realm warps the background grid in real time, a direct visualization of second-order stochastic effects bending the simulation's geometry.",
+                preview: `<div class="art-portal" style="--portal-color: #b000ff; --portal-shadow: #b000ff; width:130px; height:130px;">
+                    <div class="art-portal-octagon"></div><div class="art-portal-core"></div><div class="art-portal-text">ITÔ</div>
+                    <div class="art-portal-orbit" style="width:190px; height:190px;"><span>∫</span><span>∂</span><span>Ω</span></div>
+                </div>`
+            },
+
+            // --- BOSS TROPHY SKINS (exact gameplay boss art, reused directly from the bosses[] array) ---
+            {
+                id: 'brownian-beast-core', name: 'BROWNIAN BEAST CORE', category: 'boss', rarity: 'legendary', symbol: 'dW',
+                unlockType: 'boss', bossId: 'brownian', unlockLabel: 'Defeat the Brownian Beast in the live simulation',
+                tagline: "Forged from pure Brownian motion — the Wiener process given a hostile, physical form.",
+                what: "This trophy embodies a pure Wiener increment, the irreducible unit of randomness underlying every stochastic process in the simulation.",
+                why: "Understanding pure noise in isolation is the prerequisite for understanding every more complex model built on top of it.",
+                connection: "Its identity equation, dW<sub>t</sub> ∼ N(0, dt), is the literal definition of a Wiener increment: zero mean, variance equal to the elapsed time.",
+                gameplay: "Equipping this trophy proves you have neutralized the anomaly that manipulated dW<sub>t</sub> directly in live combat.",
+                preview: bossArt('brownian')
+            },
+            {
+                id: 'volatility-titan-core', name: 'VOLATILITY TITAN CORE', category: 'boss', rarity: 'legendary', symbol: 'σ',
+                unlockType: 'boss', bossId: 'volatility', unlockLabel: 'Defeat the Volatility Titan in the live simulation',
+                tagline: "Massive armor plating built from concentrated, undiluted variance.",
+                what: "This trophy represents a process with volatility but absolutely no directional bias — chaos with no destination.",
+                why: "Isolating volatility from drift is exactly how risk is separated from return in real financial modeling.",
+                connection: "dS<sub>t</sub> = σS<sub>t</sub>dW<sub>t</sub> — note the complete absence of a drift term. This anomaly is pure volatility with no μ component whatsoever.",
+                gameplay: "Equipping this trophy proves you withstood the Titan's storm-burst attacks and walked away with the variance term itself.",
+                preview: bossArt('volatility')
+            },
+            {
+                id: 'ito-architect', name: 'ITÔ ARCHITECT', category: 'boss', rarity: 'legendary', symbol: '∂',
+                unlockType: 'boss', bossId: 'ito', unlockLabel: 'Defeat the Itô Architect in the live simulation',
+                tagline: "A floating geometric intelligence native to stochastic calculus itself.",
+                what: "This trophy carries the full machinery of Itô's Lemma — the chain rule for stochastic processes.",
+                why: "Without Itô's Lemma, transforming a stochastic process (squaring it, taking its logarithm, exponentiating it) cannot be done correctly — it is the single most important tool in stochastic calculus.",
+                connection: "Its full equation includes the second-order term ½σ²∂²f/∂x² — a correction ordinary, non-stochastic calculus simply cannot produce.",
+                gameplay: "Equipping this trophy proves you out-transformed an anomaly that rewrote the arena's geometry in real time.",
+                preview: bossArt('ito')
+            },
+            {
+                id: 'black-swan-entity', name: 'BLACK SWAN ENTITY', category: 'boss', rarity: 'legendary', symbol: 'J',
+                unlockType: 'boss', bossId: 'swan', unlockLabel: 'Defeat the Black Swan in the live simulation',
+                tagline: "An elegant, anomalous form built from discontinuous jump risk.",
+                what: "This trophy represents a jump-diffusion process — ordinary continuous randomness layered with sudden, rare, catastrophic jumps.",
+                why: "Real markets crash in jumps, not smooth slides. Modeling only continuous diffusion while ignoring jump risk is one of the most consistently dangerous mistakes in quantitative finance.",
+                connection: "dS<sub>t</sub> = μS<sub>t</sub>dt + σS<sub>t</sub>dW<sub>t</sub> + J<sub>t</sub>dN<sub>t</sub> — the J<sub>t</sub>dN<sub>t</sub> term layers a Poisson jump process on top of ordinary diffusion.",
+                gameplay: "Equipping this trophy proves you survived and overcame the anomaly's discontinuous, near-unpredictable jump attacks.",
+                preview: bossArt('swan')
+            },
+
+            // --- ANOMALY COLLECTION (ultra rare, extreme mathematical phenomena) ---
+            {
+                id: 'tail-risk-incarnate', name: 'TAIL RISK INCARNATE', category: 'anomaly', rarity: 'mythic', symbol: 'τ',
+                unlockType: 'node', nodeId: 'swan', unlockLabel: 'Unlock the Black Swan node in the Concept Network',
+                tagline: "An elegant, anomalous form built entirely from rare, extreme outcomes.",
+                what: "Tail risk refers to the probability of extreme, rare outcomes that lie far in the tails of a distribution — the events most models underestimate.",
+                why: "Market crashes, pandemic shocks, and financial crises are all tail-risk events. Misjudging their probability is one of the most catastrophic and recurring mistakes in quantitative finance.",
+                connection: "Fat-tailed distributions assign far more probability to extreme outcomes than the Gaussian distribution most basic models assume — exactly why jump-diffusion terms like J<sub>t</sub>dN<sub>t</sub> exist.",
+                gameplay: "Earned by reaching the Black Swan node in the Concept Network — full understanding of the jump-process mathematics behind the anomaly's attacks.",
+                preview: `<svg width="130" height="130" viewBox="-65 -65 130 130" style="animation: floatOrb 2.2s ease-in-out infinite;">
+                    <path d="M0,-55 L12,-10 L45,-15 L15,15 L30,55 L0,20 L-30,55 L-15,15 L-45,-15 L-12,-10 Z" fill="rgba(255,51,102,0.15)" stroke="#ff3366" stroke-width="3" style="filter:drop-shadow(0 0 22px #ff3366); animation: spinOrbit 9s linear infinite;"/>
+                    <circle cx="0" cy="0" r="14" fill="#fff" style="filter:drop-shadow(0 0 18px #b000ff);"/>
+                </svg>`
+            },
+            {
+                id: 'singularity-process', name: 'SINGULARITY PROCESS', category: 'anomaly', rarity: 'mythic', symbol: '∞',
+                unlockType: 'skin', unlockLabel: 'Travel more than 30,000m (lifetime total)',
+                tagline: "A point where the normal rules of the model break down entirely.",
+                what: "A singularity is a point where a mathematical function becomes undefined or unbounded — where a model's assumptions stop holding.",
+                why: "Recognizing where a model breaks down is just as important as the model itself; many financial disasters stem from extrapolating equations past the point where their assumptions still apply.",
+                connection: "As variance approaches infinity in certain stochastic models, probability mass collapses toward a single point — a mathematical event horizon.",
+                gameplay: "Unlocked by accumulating an extreme total distance across your runs, a feat that pushes every system in the simulation toward its limits.",
+                preview: `<div style="position:relative; width:130px; height:130px; display:flex; align-items:center; justify-content:center;">
+                    <div style="position:absolute; width:130px; height:130px; border-radius:50%; border:2px solid #b000ff; animation: singularityCollapse 2.4s ease-in infinite;"></div>
+                    <div style="position:absolute; width:90px; height:90px; border-radius:50%; border:2px solid #b000ff; animation: singularityCollapse 2.4s ease-in infinite; animation-delay:0.8s;"></div>
+                    <div style="position:absolute; width:50px; height:50px; border-radius:50%; border:2px solid #fff; animation: singularityCollapse 2.4s ease-in infinite; animation-delay:1.6s;"></div>
+                    <div style="width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 0 30px #fff, 0 0 60px #b000ff;"></div>
+                </div>`
+            },
+            {
+                id: 'infinite-variance', name: 'INFINITE VARIANCE', category: 'anomaly', rarity: 'mythic', symbol: 'V',
+                unlockType: 'skin', unlockLabel: 'Score over 100,000 points in a single run',
+                tagline: "A chaotic, ever-expanding burst — the logical extreme of unbounded uncertainty.",
+                what: "Some probability distributions technically have infinite variance — their spread is so extreme that the usual notion of average deviation does not converge.",
+                why: "Models that assume finite variance can catastrophically misprice risk when the real underlying process has fat enough tails to make variance effectively unbounded.",
+                connection: "This is the logical extreme of raising σ without limit — eventually the very notion of typical behavior collapses entirely.",
+                gameplay: "Earned by surviving a single continuous run lasting more than 2025 seconds — true endurance against unbounded uncertainty.",
+                preview: `<svg width="140" height="140" viewBox="-70 -70 140 140" style="animation: spinOrbit 3s linear infinite;">
+                    <path d="M0,-60 L6,-20 L40,-40 L15,-8 L60,0 L15,8 L40,40 L6,20 L0,60 L-6,20 L-40,40 L-15,8 L-60,0 L-15,-8 L-40,-40 L-6,-20 Z" fill="rgba(255,215,0,0.1)" stroke="#ffd700" stroke-width="2" style="filter:drop-shadow(0 0 20px #ffd700); animation: pulseOpacity 0.8s infinite alternate;"/>
+                    <circle cx="0" cy="0" r="10" fill="#fff" style="filter:drop-shadow(0 0 14px #ff3366);"/>
+                </svg>`
+            },
+            {
+                id: 'stochastic-ghost', name: 'STOCHASTIC GHOST', category: 'anomaly', rarity: 'mythic', symbol: 'Ψ',
+                unlockType: 'skin', unlockLabel: 'Have 100 Near Misses in a single playthrough',
+                tagline: "A Wiener path stripped of drift entirely — pure noise with no destination.",
+                what: "This 'ghost' process represents motion with zero drift: noise with no destination, wandering forever.",
+                why: "Studying pure noise in isolation, without any signal, is how statisticians learn to recognize when there is truly nothing predictable left to find in data.",
+                connection: "Set μ to zero in any SDE and what remains is exactly this: dS<sub>t</sub> = σS<sub>t</sub>dW<sub>t</sub>, motion with no destination, only motion.",
+                gameplay: "Unlocked by threading the needle past 100 near-miss obstacles in a single run — proof of total mastery over pure stochastic motion.",
+                preview: `<svg width="120" height="140" viewBox="-60 -70 120 140" style="animation: floatOrb 5s ease-in-out infinite; opacity:0.8;">
+                    <path d="M0,-50 C25,-50 35,-20 30,10 C28,30 40,40 30,55 C20,45 15,60 0,50 C-15,60 -20,45 -30,55 C-40,40 -28,30 -30,10 C-35,-20 -25,-50 0,-50 Z" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.6)" stroke-width="2" style="filter:drop-shadow(0 0 20px #00f3ff);"/>
+                    <circle cx="-12" cy="-15" r="4" fill="#00f3ff"/>
+                    <circle cx="12" cy="-15" r="4" fill="#00f3ff"/>
+                </svg>`
+            },
+            {
+                id: 'chaos-attractor', name: 'CHAOS ATTRACTOR', category: 'anomaly', rarity: 'mythic', symbol: 'Λ',
+                unlockType: 'allnodes', unlockLabel: 'Unlock every node in the Concept Network',
+                tagline: "A shape the system is endlessly drawn toward, even though its exact path never repeats.",
+                what: "A strange attractor is a shape that a chaotic system is drawn toward over time, even though its exact path is never exactly repeated.",
+                why: "Chaos theory shows that deterministic systems can still be practically unpredictable — a key insight for weather modeling, fluid dynamics, and complex financial systems alike.",
+                connection: "While Stochastic Drift's core processes are random rather than chaotic, both share a defining trait: long-run structure that emerges even when the short-run path is entirely unpredictable.",
+                gameplay: "Earned by mapping the entire Concept Network — every theorem, from Probability to the Black Swan, fully understood.",
+                preview: `<svg width="140" height="120" viewBox="-70 -60 140 120" style="animation: floatOrb 4s ease-in-out infinite;">
+                    <path d="M-35,0 C-35,-30 -5,-30 -5,0 C-5,25 -35,25 -35,0 C-35,-20 0,-35 25,-15 C45,0 45,25 25,30 C0,35 5,5 25,0" fill="none" stroke="#b000ff" stroke-width="2.5" style="filter:drop-shadow(0 0 16px #b000ff); animation: spinOrbit 14s linear infinite;"/>
+                    <circle cx="-35" cy="0" r="5" fill="#7fff8c" style="filter:drop-shadow(0 0 12px #7fff8c);"/>
+                    <circle cx="25" cy="0" r="5" fill="#7fff8c" style="filter:drop-shadow(0 0 12px #7fff8c);"/>
+                </svg>`
+            }
+        ];
+
+        const TRANSFORM_DISCOVER_GOAL = 10;
+
+        function checkSkinUnlocked(skin) {
+            if (skin.unlockType === 'default') return true;
+            if (skin.unlockType === 'boss') return localStorage.getItem('stochastic_boss_' + skin.bossId) === 'true';
+            if (skin.unlockType === 'node') return checkNodeUnlocked(skin.nodeId);
+            if (skin.unlockType === 'allnodes') return vaultNodes.every(n => checkNodeUnlocked(n.id));
+            if (skin.unlockType === 'transform_count') {
+                let count = parseInt(localStorage.getItem('stochastic_transform_count_' + skin.transformType) || '0');
+                return count >= TRANSFORM_DISCOVER_GOAL;
+            }
+            return localStorage.getItem('stochastic_skin_' + skin.id) === 'true';
+        }
+
+        // Builds the locked-status line, appending a live "x/10 discovered" counter for
+        // transformation skins so players can see exactly how much progress remains.
+        function getSkinUnlockStatusLabel(skin) {
+            if (skin.unlockType === 'transform_count') {
+                let count = parseInt(localStorage.getItem('stochastic_transform_count_' + skin.transformType) || '0');
+                let shown = Math.min(count, TRANSFORM_DISCOVER_GOAL);
+                return skin.unlockLabel + ' (' + shown + '/' + TRANSFORM_DISCOVER_GOAL + ' discovered)';
+            }
+            return skin.unlockLabel;
+        }
+
+        function getEquippedSkinId() {
+            return localStorage.getItem('stochastic_selected_skin') || 'mu-navigator';
+        }
+
+        function showSkinUnlockToast(skin) {
+            const toast = document.getElementById('skin-unlock-toast');
+            const rarity = RARITY[skin.rarity];
+            toast.style.borderColor = rarity.color;
+            toast.style.boxShadow = `0 10px 30px rgba(0,0,0,0.6), 0 0 25px ${rarity.glow}`;
+            toast.innerHTML = `<div class="toast-label" style="color:${rarity.color};">SKIN UNLOCKED</div><div class="toast-name">${skin.name}</div>`;
+            toast.classList.add('visible');
+            clearTimeout(window._skinToastTimer);
+            window._skinToastTimer = setTimeout(() => toast.classList.remove('visible'), 3200);
+        }
+
+        // Fires the "SKIN UNLOCKED" toast exactly once per skin, ever, for unlocks that complete
+        // here in the Vault (Concept Network node milestones). Mirrors the flag into the shared
+        // stochastic_skin_<id> key so the game's equip-validation sees it too.
+        function tryUnlockSkinVault(skinId) {
+            try {
+                const skin = SKINS.find(s => s.id === skinId);
+                if (!skin || !checkSkinUnlocked(skin)) return;
+                let unlockKey = 'stochastic_skin_' + skinId;
+                if (localStorage.getItem(unlockKey) !== 'true') localStorage.setItem(unlockKey, 'true');
+
+                let notifyKey = 'stochastic_skin_notified_' + skinId;
+                if (localStorage.getItem(notifyKey) === 'true') return;
+                localStorage.setItem(notifyKey, 'true');
+
+                showSkinUnlockToast(skin);
+                buildSkinRows();
+                if (window._currentFeaturedSkinId === skinId) selectSkin(skinId);
+            } catch(e) {}
+        }
+
+        // Checked after every node purchase (and once at page load) — covers every skin whose
+        // unlock condition lives entirely in the Concept Network.
+        function checkNodeDependentSkinUnlocks() {
+            tryUnlockSkinVault('wiener-entity');
+            tryUnlockSkinVault('martingale-construct');
+            tryUnlockSkinVault('tail-risk-incarnate');
+            tryUnlockSkinVault('chaos-attractor');
+        }
+
+        function renderSkinParticles(rarityKey) {
+            const container = document.getElementById('skin-featured-particles');
+            const count = RARITY[rarityKey].particles;
+            let html = '';
+            for (let i = 0; i < count; i++) {
+                let left = 15 + Math.random() * 70;
+                let delay = (Math.random() * 4).toFixed(2);
+                let duration = (3.5 + Math.random() * 3).toFixed(2);
+                let size = (2 + Math.random() * 4).toFixed(1);
+                let driftX = Math.round((Math.random() - 0.5) * 70);
+                html += `<div class="skin-particle" style="left:${left}%; bottom:40px; width:${size}px; height:${size}px; animation-delay:${delay}s; animation-duration:${duration}s; --drift-x:${driftX}px;"></div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        // Updates the EQUIP button to reflect the currently-featured skin's lock/equip state.
+        function refreshEquipUI() {
+            const id = window._currentFeaturedSkinId;
+            const skin = SKINS.find(s => s.id === id);
+            if (!skin) return;
+            const unlocked = checkSkinUnlocked(skin);
+            const equipped = getEquippedSkinId() === id;
+            const btn = document.getElementById('skin-equip-btn');
+            btn.classList.remove('equipped', 'skin-locked');
+            if (!unlocked) {
+                btn.textContent = 'LOCKED';
+                btn.classList.add('skin-locked');
+            } else if (equipped) {
+                btn.textContent = 'EQUIPPED';
+                btn.classList.add('equipped');
+            } else {
+                btn.textContent = 'EQUIP';
+            }
+        }
+
+        // Equips the currently-featured skin for use in Stochastic Drift itself, via the shared
+        // localStorage key the game reads on every run start.
+        function equipSkin() {
+            const id = window._currentFeaturedSkinId;
+            const skin = SKINS.find(s => s.id === id);
+            if (!skin || !checkSkinUnlocked(skin)) return;
+            localStorage.setItem('stochastic_selected_skin', id);
+            refreshEquipUI();
+            buildSkinRows();
+        }
+
+        function selectSkin(id) {
+            const skin = SKINS.find(s => s.id === id);
+            if (!skin) return;
+            const isUnlocked = checkSkinUnlocked(skin);
+            const rarity = RARITY[skin.rarity];
+            window._currentFeaturedSkinId = id;
+
+            // Bring the bio/featured display into view immediately — useful when a thumbnail
+            // was clicked further down the category rows.
+            document.getElementById('skin-featured').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            const previewEl = document.getElementById('skin-featured-preview');
+            const infoEl = document.getElementById('skin-featured-info');
+            const featuredEl = document.getElementById('skin-featured');
+
+            previewEl.classList.add('skin-transition-out');
+            infoEl.classList.add('skin-transition-out');
+
+            clearTimeout(window._skinTransTimer);
+            window._skinTransTimer = setTimeout(() => {
+                featuredEl.className = 'skin-featured rarity-' + skin.rarity;
+
+                previewEl.innerHTML = isUnlocked ? skin.preview : `<div style="filter: grayscale(1) brightness(0.3); opacity:0.55;">${skin.preview}</div>`;
+
+                const badge = document.getElementById('skin-rarity-badge');
+                badge.textContent = rarity.label;
+
+                document.getElementById('skin-featured-name').textContent = isUnlocked ? skin.name : skin.name + ' — UNKNOWN MANIFESTATION';
+                document.getElementById('skin-featured-name').style.color = isUnlocked ? '#fff' : 'var(--text-dim)';
+
+                const statusEl = document.getElementById('skin-unlock-status');
+                statusEl.textContent = isUnlocked ? 'UNLOCKED' : 'LOCKED — ' + getSkinUnlockStatusLabel(skin);
+                statusEl.classList.toggle('is-unlocked', isUnlocked);
+
+                document.getElementById('skin-tagline').textContent = isUnlocked ? skin.tagline : 'Mathematical profile restricted until the unlock condition above is met.';
+
+                document.getElementById('skin-edu-what').innerHTML = isUnlocked ? skin.what : 'Encrypted.';
+                document.getElementById('skin-edu-why').innerHTML = isUnlocked ? skin.why : 'Encrypted.';
+                document.getElementById('skin-edu-connection').innerHTML = isUnlocked ? skin.connection : 'Encrypted.';
+                document.getElementById('skin-edu-gameplay').innerHTML = isUnlocked ? skin.gameplay : 'Encrypted.';
+
+                renderSkinParticles(skin.rarity);
+                refreshEquipUI();
+
+                previewEl.classList.remove('skin-transition-out');
+                infoEl.classList.remove('skin-transition-out');
+            }, 320);
+
+            document.querySelectorAll('.skin-thumb').forEach(t => t.classList.toggle('active', t.dataset.id === id));
+        }
+
+        function buildSkinRows() {
+            const rows = { core: 'skin-row-core', transform: 'skin-row-transform', boss: 'skin-row-boss', anomaly: 'skin-row-anomaly' };
+            const equippedId = getEquippedSkinId();
+            const activeId = window._currentFeaturedSkinId;
+            Object.keys(rows).forEach(cat => {
+                const container = document.getElementById(rows[cat]);
+                let html = '';
+                SKINS.filter(s => s.category === cat).forEach(s => {
+                    const unlocked = checkSkinUnlocked(s);
+                    const isEquipped = unlocked && s.id === equippedId;
+                    const activeClass = (s.id === activeId) ? 'active' : '';
+                    html += `
+                        <div class="skin-thumb rarity-${s.rarity} ${unlocked ? '' : 'locked'} ${activeClass}" data-id="${s.id}" onclick="selectSkin('${s.id}')">
+                            ${isEquipped ? '<div class="skin-thumb-equipped-tag">EQUIPPED</div>' : (unlocked ? '' : '<div class="skin-thumb-lock">&#9670;</div>')}
+                            <div class="skin-thumb-icon">${s.symbol}</div>
+                            <div class="skin-thumb-name">${s.name}</div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            });
+        }
+
+        function initSkinsVault() {
+            checkNodeDependentSkinUnlocks();
+            buildSkinRows();
+            selectSkin(SKINS[0].id);
+        }
+
+        // --- NAVIGATION ---
+        function switchTab(tabId, evt) {
+            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+            if (evt && evt.target) evt.target.classList.add('active');
+            
+            document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+            
+            const main = document.getElementById('main-content');
+            if(tabId === 'network') {
+                main.classList.add('no-pad');
+            } else {
+                main.classList.remove('no-pad');
+                main.scrollTop = 0;
+            }
+        }
+    </script>
+</body>
+</html>

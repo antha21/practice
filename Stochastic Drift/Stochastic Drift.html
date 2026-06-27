@@ -1,0 +1,2283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stochastic Drift - The Final Cut</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;700&family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --bg-dark: #030412;
+            --bg-mid: #0a0f28;
+            --accent-green: #7fff8c;
+            --accent-cyan: #00f3ff;
+            --accent-red: #ff3366;
+            --accent-purple: #b000ff;
+            --accent-gold: #ffd700;
+            --text-main: #ffffff;
+            --text-dim: rgba(255,255,255,0.6);
+            --font-display: 'Orbitron', sans-serif;
+            --font-ui: 'Rajdhani', sans-serif;
+            --font-mono: 'Share Tech Mono', monospace;
+            --theme-primary: #7fff8c;
+            --theme-secondary: #00f3ff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: var(--font-ui);
+            color: var(--text-main);
+            user-select: none;
+            touch-action: none;
+            perspective: 1000px;
+        }
+
+        /* --- GLOBAL SCREEN FX --- */
+        #game-canvas { 
+            display: block; width: 100%; height: 100%; z-index: 1; 
+            transition: transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1), filter 0.3s ease, opacity 2s ease;
+        }
+
+        body.boss-active #game-canvas { transform: scale(0.97) rotateX(2deg); filter: contrast(1.15) saturate(1.2); }
+        body.warning-active #game-canvas { animation: warning-shake 0.2s infinite; filter: contrast(1.5) saturate(2) hue-rotate(-20deg); }
+        body.near-miss #game-canvas { transform: scale(1.02) skewX(-1deg); filter: contrast(1.3) saturate(1.5) hue-rotate(15deg); }
+
+        @keyframes warning-shake { 0% { transform: translate(2px, 1px) rotate(0deg); } 50% { transform: translate(-1px, -2px) rotate(-1deg); } 100% { transform: translate(-3px, 1px) rotate(1deg); } }
+
+        #vfx-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 5; transition: all 1s ease; mix-blend-mode: overlay;
+        }
+
+        body.boss-active #vfx-overlay { box-shadow: inset 0 0 150px rgba(255, 51, 102, 0.3); animation: boss-pulse 2s infinite alternate; }
+        body.warning-active #vfx-overlay { box-shadow: inset 0 0 200px rgba(255, 0, 0, 0.6); animation: warning-pulse 0.5s infinite alternate; }
+
+        @keyframes boss-pulse { 0% { box-shadow: inset 0 0 100px rgba(255, 51, 102, 0.2); } 100% { box-shadow: inset 0 0 200px rgba(255, 51, 102, 0.5); } }
+        @keyframes warning-pulse { 0% { box-shadow: inset 0 0 100px rgba(255, 0, 0, 0.3); } 100% { box-shadow: inset 0 0 250px rgba(255, 0, 0, 0.8); } }
+
+        /* --- INTRO SEQUENCE --- */
+        #intro-sequence {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-family: var(--font-mono); font-size: 2rem; color: var(--accent-cyan);
+            text-align: center; z-index: 100; pointer-events: none; opacity: 0;
+            text-shadow: 0 0 15px var(--accent-cyan); letter-spacing: 0.2em;
+            transition: opacity 0.5s ease;
+        }
+
+        /* --- UI OVERLAYS --- */
+        .hud-container {
+            position: absolute; top: 0; left: 0; width: 100%;
+            padding: 20px 40px; display: flex; justify-content: space-between;
+            align-items: flex-start; z-index: 10; pointer-events: none;
+            transition: opacity 1s ease;
+        }
+
+        .hud-container.glitch-extreme {
+            animation: hud-death-glitch 0.2s infinite; filter: saturate(3) hue-rotate(90deg);
+        }
+
+        @keyframes hud-death-glitch {
+            0% { transform: translate(5px, -5px) skewX(10deg); opacity: 1; }
+            20% { transform: translate(-10px, 5px) skewX(-20deg); opacity: 0.5; }
+            40% { transform: translate(15px, -10px) skewX(30deg); opacity: 1; }
+            60% { transform: translate(-5px, 15px) skewX(-10deg); opacity: 0.2; }
+            80% { transform: translate(10px, -5px) skewX(15deg); opacity: 0.8; }
+            100% { transform: translate(-15px, 10px) skewX(-30deg); opacity: 1; }
+        }
+
+        .meters { display: flex; flex-direction: column; gap: 15px; width: 250px; }
+        .meter-group { display: flex; flex-direction: column; gap: 5px; }
+        .meter-label { font-family: var(--font-display); font-size: 0.8rem; color: rgba(255, 255, 255, 0.7); letter-spacing: 0.1em; text-transform: uppercase; display: flex; justify-content: space-between; }
+        .meter-bar { height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; position: relative; }
+        .meter-fill { height: 100%; width: 0%; transition: width 0.1s linear, background-color 0.2s; }
+        #fill-drift { background: var(--theme-primary); box-shadow: 0 0 10px var(--theme-primary); transition: background-color 1s; }
+        #fill-volatility { background: var(--theme-secondary); box-shadow: 0 0 10px var(--theme-secondary); transition: background-color 1s; }
+
+        /* FIXED UI STATS LAYOUT */
+        .stats { display: flex; flex-direction: column; align-items: flex-end; gap: 20px; font-family: var(--font-display); position: relative; }
+        .stat-block { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+        .stat-value { font-size: 2.5rem; line-height: 1; font-weight: 900; color: #fff; text-shadow: 0 0 10px rgba(255, 255, 255, 0.5); display: inline-block; transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .stat-value.milestone { transform: scale(1.4); color: var(--accent-gold); text-shadow: 0 0 20px var(--accent-gold); }
+        .stat-label { font-size: 0.85rem; line-height: 1; color: var(--theme-secondary); letter-spacing: 0.2em; transition: color 1s; }
+        
+        #multiplier-display {
+            font-size: 1.5rem; color: var(--accent-gold); font-family: var(--font-display); font-style: italic; text-shadow: 0 0 15px var(--accent-gold);
+            opacity: 0; transform: translateX(20px); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #multiplier-display.active { opacity: 1; transform: translateX(0); }
+
+        #revive-indicator {
+            font-size: 1rem; color: var(--accent-gold); font-family: var(--font-display); font-weight: 900; text-shadow: 0 0 15px var(--accent-gold);
+            opacity: 0; transform: translateX(20px); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); letter-spacing: 0.1em;
+        }
+        #revive-indicator.active { opacity: 1; transform: translateX(0); }
+
+        /* Dynamic Equation HUD */
+        .equation-hud-wrapper {
+            position: absolute; top: 25px; left: 50%; transform: translateX(-50%);
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+        }
+        .equation-hud {
+            font-family: "Times New Roman", serif; font-style: italic; font-size: 2.5rem;
+            color: rgba(255, 255, 255, 0.4); letter-spacing: 0.05em;
+            background: rgba(0, 0, 0, 0.4); padding: 10px 30px; border-radius: 50px;
+            border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(5px); 
+            transition: border-color 0.5s, box-shadow 0.5s, transform 0.3s, opacity 0.7s ease, filter 0.7s ease;
+            white-space: nowrap; display: flex; align-items: center; justify-content: center;
+        }
+
+        /* Equation dissolve/restore state — used for smooth boss equation transitions */
+        .equation-hud.collapsing {
+            opacity: 0; filter: blur(14px) saturate(0.15) brightness(1.6);
+            transition: opacity 0.45s ease, filter 0.45s ease;
+        }
+        
+        #transform-timer-container { width: 80%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; opacity: 0; transition: opacity 0.3s; overflow: hidden; }
+        #transform-timer-bar { height: 100%; width: 100%; background: #fff; box-shadow: 0 0 10px #fff; }
+
+        body.boss-active .equation-hud { transform: skewX(-5deg); border-color: var(--accent-red); box-shadow: 0 0 20px rgba(255, 51, 102, 0.2); animation: eq-glitch 0.6s infinite alternate; }
+        @keyframes eq-glitch { 0% { transform: skewX(-5deg) translate(0, 0); } 50% { transform: skewX(-7deg) translate(1px, -1px); } 100% { transform: skewX(-3deg) translate(-1px, 1px); } }
+
+        /* Reactive boss equation term — pulses the instant that boss's signature attack fires */
+        #boss-eq-reactive { display: inline-block; transition: text-shadow 0.2s ease, filter 0.2s ease; }
+        #boss-eq-reactive.boss-eq-flash { animation: boss-eq-pulse 0.65s ease; }
+        @keyframes boss-eq-pulse {
+            0% { text-shadow: 0 0 6px rgba(255,255,255,0.3); transform: scale(1); filter: brightness(1); }
+            25% { text-shadow: 0 0 25px #fff, 0 0 50px currentColor; transform: scale(1.45); filter: brightness(1.9); }
+            100% { text-shadow: 0 0 6px rgba(255,255,255,0.3); transform: scale(1); filter: brightness(1); }
+        }
+
+        .eq-term { transition: all 0.2s ease-out; display: inline-block; }
+        .eq-mu { display: inline-block; transition: all 0.1s ease-out; }
+        .eq-sigma { display: inline-block; transition: all 0.1s ease-out; }
+        .eq-sigma.crackling { animation: electric-crackle 0.15s infinite; }
+        .eq-dw { display: inline-block; transition: all 0.05s ease-out; }
+        .eq-st { display: inline-block; transition: all 0.1s ease-out; }
+
+        .highlight-cyan { color: var(--accent-cyan) !important; text-shadow: 0 0 15px var(--accent-cyan) !important; transform: scale(1.1); }
+        .highlight-gold { color: var(--accent-gold) !important; text-shadow: 0 0 15px var(--accent-gold) !important; transform: scale(1.1); }
+        .highlight-green { color: var(--accent-green) !important; text-shadow: 0 0 15px var(--accent-green) !important; transform: scale(1.1); }
+        .highlight-red { color: var(--accent-red) !important; text-shadow: 0 0 15px var(--accent-red) !important; transform: scale(1.1); }
+
+        @keyframes electric-crackle { 0% { transform: translate(1px, -1px) skewX(2deg); opacity: 1; } 50% { transform: translate(-1px, 1px) skewX(-2deg); opacity: 0.8; text-shadow: 0 0 25px #fff; } 100% { transform: translate(0, 0) skewX(0deg); opacity: 1; } }
+
+        /* --- SYSTEM ALERTS (CENTERED & CINEMATIC) --- */
+        #system-alert {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8);
+            font-family: var(--font-display); text-align: center;
+            opacity: 0; pointer-events: none; z-index: 60; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        body.warning-active #system-alert { opacity: 1; transform: translate(-50%, -50%) scale(1); animation: none; }
+        #system-alert h1 { font-size: 5rem; font-weight: 900; color: var(--accent-red); text-shadow: 0 0 30px var(--accent-red), 0 0 60px #ff0000; letter-spacing: 0.2em; margin-bottom: 10px; }
+        #system-alert h2 { font-family: var(--font-ui); font-size: 1.8rem; color: #fff; letter-spacing: 0.4em; text-shadow: 0 0 15px #fff; }
+
+        /* Boss UI */
+        .boss-ui {
+            position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%) translateY(20px);
+            width: 60%; text-align: center; z-index: 10; opacity: 0; filter: blur(10px);
+            transition: opacity 1s cubic-bezier(0.1, 0.9, 0.2, 1), transform 1s cubic-bezier(0.1, 0.9, 0.2, 1), filter 1s;
+        }
+        .boss-ui.visible { opacity: 1; transform: translateX(-50%) translateY(0); filter: blur(0); }
+        .boss-name { font-family: var(--font-display); font-size: 1.5rem; letter-spacing: 0.3em; margin-bottom: 10px; text-shadow: 0 0 10px currentColor; }
+        .boss-hp-bg { width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.3); }
+        .boss-hp-fill { height: 100%; width: 100%; transition: width 0.2s, background-color 0.5s; }
+
+        /* Powerup HUD */
+        #powerup-display {
+            position: absolute; bottom: 20px; right: 20px; font-family: var(--font-display);
+            color: #fff; text-transform: uppercase; font-size: 1.2rem; letter-spacing: 0.1em;
+            opacity: 0; transition: opacity 0.5s; text-align: right; z-index: 10;
+        }
+        #powerup-display span { font-size: 0.8rem; color: var(--text-dim); display: block; }
+
+        /* Educational Popups */
+        #popup-container {
+            position: absolute; top: 70%; left: 50%; transform: translate(-50%, -40%);
+            text-align: center; z-index: 20; pointer-events: none; 
+            opacity: 0; filter: blur(20px);
+            transition: opacity 0.35s ease, filter 0.35s ease, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);	    
+            display: none;
+        }
+        #popup-container.visible { opacity: 1; filter: blur(0px); transform: translate(-50%, -50%); }
+
+        .popup-text {
+            font-family: var(--font-display); font-size: 1.5rem; color: #fff;
+            background: rgba(6, 8, 32, 0.8); border: 1px solid var(--theme-secondary);
+            padding: 15px 40px; border-radius: 5px; box-shadow: 0 0 30px rgba(0, 243, 255, 0.3);
+            text-transform: uppercase; letter-spacing: 0.1em; overflow: hidden; transition: border-color 1s;
+        }
+        .popup-sub { font-family: var(--font-ui); font-size: 1rem; color: var(--theme-secondary); margin-top: 5px; letter-spacing: 0.2em; transition: color 1s; }
+
+        /* Holographic Achievements */
+        #achievement-container { position: absolute; bottom: 80px; right: 30px; z-index: 40; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .achieve-card { background: rgba(6, 8, 32, 0.9); border-left: 4px solid var(--accent-gold); border-top: 1px solid rgba(255,215,0,0.3); border-bottom: 1px solid rgba(255,215,0,0.3); border-right: 1px solid rgba(255,215,0,0.3); padding: 15px 25px; border-radius: 4px; display: flex; align-items: center; gap: 15px; box-shadow: -10px 0 20px rgba(255, 215, 0, 0.1), inset 0 0 20px rgba(255,215,0,0.05); transform: translateX(120%); opacity: 0; filter: blur(5px); transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter: blur(10px); }
+        .achieve-card.show { transform: translateX(0); opacity: 1; filter: blur(0); }
+        .achieve-icon { font-size: 2rem; color: var(--accent-gold); font-family: "Times New Roman", serif; font-style: italic; }
+        .achieve-text h4 { font-family: var(--font-display); font-size: 1rem; color: #fff; margin: 0; letter-spacing: 0.1em; }
+        .achieve-text p { font-family: var(--font-ui); font-size: 0.8rem; color: var(--accent-gold); margin: 0; letter-spacing: 0.1em; text-transform: uppercase; }
+
+        /* Pause & Post-Run Analysis */
+        #pause-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(3, 4, 18, 0.7); backdrop-filter: blur(8px); display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; z-index: 60; }
+        #pause-overlay.active { opacity: 1; pointer-events: all; }
+        #pause-overlay h2 { font-family: var(--font-display); font-size: 4rem; color: var(--theme-secondary); text-shadow: 0 0 20px var(--theme-secondary); letter-spacing: 0.3em; margin-bottom: 10px; }
+        
+        #damage-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; box-shadow: inset 0 0 0px var(--accent-red); pointer-events: none; z-index: 5; transition: box-shadow 0.2s; }
+        
+        #post-run-analysis {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(3, 4, 18, 0.95); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 50; opacity: 0;
+            pointer-events: none; transition: opacity 1s ease;
+            backdrop-filter: blur(15px);
+        }
+        #post-run-analysis.active { opacity: 1; pointer-events: all; }
+        
+        .pra-header { font-family: var(--font-display); font-size: 4rem; color: #fff; text-shadow: 0 0 20px var(--accent-cyan); margin-bottom: 5px; letter-spacing: 0.1em; text-align: center; }
+        .pra-seed { font-family: var(--font-mono); font-size: 1.2rem; color: var(--text-dim); margin-bottom: 40px; letter-spacing: 0.2em; }
+        .pra-seed span { color: var(--accent-gold); }
+        
+        .pra-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 600px; margin-bottom: 50px; }
+        .pra-stat { background: rgba(0,243,255,0.05); border-left: 4px solid var(--accent-cyan); padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; }
+        .pra-stat span:first-child { font-family: var(--font-ui); font-size: 1rem; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+        .pra-stat span:last-child { font-family: var(--font-mono); font-size: 1.5rem; color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.5); }
+
+        .btn-restart { background: transparent; border: 2px solid var(--theme-primary); color: var(--theme-primary); padding: 15px 40px; font-family: var(--font-display); font-size: 1.5rem; cursor: pointer; text-transform: uppercase; transition: all 0.3s; }
+        .btn-restart:hover { background: rgba(255,255,255, 0.1); box-shadow: 0 0 20px var(--theme-primary); color: #fff; }
+        
+        /* DOM Elements */
+        .ui-particle { position: absolute; pointer-events: none; border-radius: 50%; z-index: 100; mix-blend-mode: screen; }
+        .floating-text { position: absolute; pointer-events: none; font-family: var(--font-display); font-size: 1.2rem; color: #fff; text-shadow: 0 0 10px #fff; z-index: 100; animation: float-up 1s cubic-bezier(0.1, 0.9, 0.2, 1) forwards; }
+        @keyframes float-up { 0% { transform: translateY(0) scale(1); opacity: 1; } 100% { transform: translateY(-50px) scale(1.5); opacity: 0; } }
+
+        #phase-indicator { position: absolute; bottom: 20px; left: 20px; font-family: var(--font-display); color: var(--text-dim); font-size: 0.8rem; letter-spacing: 0.1em; z-index: 10; transition: opacity 0.5s; }
+
+        body.squared-mode #vfx-overlay { 
+            box-shadow: inset 0 0 250px rgba(255, 215, 0, 0.4) !important; 
+            background: rgba(255, 215, 0, 0.05);
+            animation: boss-pulse 1s infinite alternate; 
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="vfx-overlay"></div>
+    <div id="damage-overlay"></div>
+    
+    <div id="system-alert">
+        <h1>ANOMALY DETECTED</h1>
+        <h2 id="sys-alert-title">ENTITY APPROACHING</h2>
+        <p id="sys-alert-desc">Description</p>
+    </div>
+
+    <div id="intro-sequence">INITIALIZING STOCHASTIC PROCESS...</div>
+
+    <div class="hud-container" id="main-hud">
+        <div class="meters">
+            <div class="meter-group"><div class="meter-label"><span>Drift (μ)</span><span id="txt-drift">0.00</span></div><div class="meter-bar"><div class="meter-fill" id="fill-drift"></div></div></div>
+            <div class="meter-group"><div class="meter-label"><span>Volatility (σ)</span><span id="txt-vol">0.00</span></div><div class="meter-bar"><div class="meter-fill" id="fill-volatility"></div></div></div>
+        </div>
+        <div class="equation-hud-wrapper">
+            <div class="equation-hud" id="ui-eq">
+                </div>
+            <div id="transform-timer-container"><div id="transform-timer-bar"></div></div>
+        </div>
+        <div class="stats">
+	    <div class="stat-block">
+                <div class="stat-value" id="ui-score">0.00</div>
+                <div class="stat-label">SURVIVAL TIME</div>
+            </div>
+	    <div class="stat-block">
+                <div class="stat-value" id="ui-dist" style="font-size: 1.8rem;">0m</div>
+                <div class="stat-label">DISTANCE</div>
+            </div>
+	    <div class="stat-block">
+                <div class="stat-value" id="ui-total-score" style="font-size: 1.8rem;">0</div>
+                <div class="stat-label">TOTAL SCORE</div>
+            </div>
+            <div id="multiplier-display">x1.0</div>
+            <div id="revive-indicator">[ MARTINGALE ACTIVE ]</div>
+        </div>
+    </div>
+
+    <div class="boss-ui" id="boss-ui"><div class="boss-name" id="boss-name">ENTITY NAME</div><div class="boss-hp-bg"><div class="boss-hp-fill" id="boss-hp"></div></div></div>
+    <div id="powerup-display">ACTIVE CORE<span>---</span></div>
+    <div id="popup-container"><div class="popup-text" id="popup-title">EVENT</div><div class="popup-sub" id="popup-desc">Details</div></div>
+    <div id="achievement-container"></div>
+    <div id="pause-overlay"><h2>SIMULATION PAUSED</h2><p>Press [ESC] to resume computation</p></div>
+    
+    <div id="post-run-analysis">
+        <div class="pra-header">SIMULATION TERMINATED</div>
+        <div class="pra-seed">HEX SEED: <span id="pra-seed-val">0x000000</span></div>
+        <div class="pra-grid">
+            <div class="pra-stat"><span>FINAL SCORE</span><span id="pra-score">0</span></div>
+            <div class="pra-stat"><span>DURATION</span><span id="pra-time">0.00s</span></div>
+            <div class="pra-stat"><span>DISTANCE</span><span id="pra-dist">0m</span></div>
+            <div class="pra-stat"><span>AVG VOLATILITY</span><span id="pra-vol">0.00σ</span></div>
+            <div class="pra-stat"><span>MAX DRIFT</span><span id="pra-drift">0.00μ</span></div>
+            <div class="pra-stat"><span>NODES DECRYPTED</span><span id="pra-nodes">0</span></div>
+            <div class="pra-stat"><span>NEAR MISSES</span><span id="pra-misses">0</span></div>
+            <div class="pra-stat"><span>BOSSES DEFEATED</span><span id="pra-bosses">0</span></div>
+        </div>
+        <button class="btn-restart" onclick="window.location.href='index Sde.html'">RETURN TO MAIN MENU</button>
+    </div>
+
+    <div id="phase-indicator">PHASE 1: CALIBRATION</div>
+
+    <canvas id="game-canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d');
+        let width, height; function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
+        window.addEventListener('resize', resize); resize();
+
+        // --- GAME ENGINE STATE ---
+        let isPlaying = false, isSpaceDown = false, isPaused = false;
+        let isDead = false, deathTimer = 0;
+        let isIntro = false, isRecovering = false, recoveryTimer = 0;
+        let timeScale = 1.0, targetTimeScale = 1.0;
+        let frameCount = 0, activeFrameCount = 0, scrollSpeed = 8;
+        let score = 0, displayScore = 0, lastMilestone = 0, distance = 0, screenShake = 0, scoreMultiplier = 1.0;
+        let randomSeedStr = "0x" + Math.floor(Math.random()*16777215).toString(16).toUpperCase();
+
+        let stats = { nodes: 0, nearMisses: 0, bosses: 0, maxDrift: 0, volSum: 0, volTicks: 0 };
+        window.popupTimers = [];
+
+        const Themes = [
+            { id: 1, p: '#7fff8c', s: '#00f3ff', bg: '#0a0c22' }, 
+            { id: 2, p: '#b000ff', s: '#ff00c1', bg: '#120002' }, 
+            { id: 3, p: '#ffd700', s: '#00f3ff', bg: '#001a33' }, 
+            { id: 4, p: '#ff3366', s: '#ff8800', bg: '#1f0008' }  
+        ];
+
+        // SHIP SKINS — mirrors the Mathematical Skins Vault in the Knowledge Vault companion page exactly.
+        // Visual only: color / glow / glyph / silhouette. Collision stays purely size-based regardless of shape.
+        const SKIN_DEFS = {
+            'mu-navigator':                { name: 'μ NAVIGATOR',                 color: '#7fff8c', glow: '#7fff8c', glyph: 'μ',  shape: 'triangle' },
+            'sigma-volatility-core':       { name: 'σ VOLATILITY CORE',           color: '#00f3ff', glow: '#00f3ff', glyph: 'σ',     shape: 'pentagon-crystal' },
+            'wiener-entity':               { name: 'WIENER ENTITY',               color: '#ffffff', glow: '#00f3ff', glyph: 'W',     shape: 'wave-orb' },
+            'martingale-construct':        { name: 'MARTINGALE CONSTRUCT',        color: '#ffd700', glow: '#ffd700', glyph: 'E',     shape: 'martingale' },
+
+            'log-phantom':                 { name: 'LOGARITHMIC PHANTOM',         color: '#ff3366', glow: '#ff0000', glyph: 'ln(S)', shape: 'portal', orbitSyms: ['−','½','σ²'] },
+            'quadratic-expansion':         { name: 'QUADRATIC EXPANSION',         color: '#ffd700', glow: '#00f3ff', glyph: 'Sₜ²',   shape: 'portal', orbitSyms: ['+','σ²','S²'] },
+            'exponential-ascendant':       { name: 'EXPONENTIAL ASCENDANT',       color: '#7fff8c', glow: '#ffd700', glyph: 'e^S',   shape: 'portal', orbitSyms: ['e','↑','μ'] },
+            'mean-reversion-anchor':       { name: 'MEAN REVERSION ANCHOR',       color: '#0055ff', glow: '#00f3ff', glyph: 'θ(μ-S)', shape: 'portal', orbitSyms: ['θ','↔','μ'] },
+            'volatility-compression-core': { name: 'VOLATILITY COMPRESSION CORE', color: '#b000ff', glow: '#ffffff', glyph: 'σ↓',    shape: 'portal', orbitSyms: ['↓','σ','k'] },
+            'drift-amplifier':             { name: 'DRIFT AMPLIFIER',             color: '#00ffaa', glow: '#00ffaa', glyph: 'μ↑',    shape: 'portal', orbitSyms: ['↑','μ','S'] },
+            'gravity-well':                { name: 'GRAVITY WELL',                color: '#7fff8c', glow: '#ffd700', glyph: 'μ→',    shape: 'portal', orbitSyms: ['μ','→','S'] },
+            'ito-realm-avatar':            { name: 'ITÔ REALM AVATAR',            color: '#b000ff', glow: '#b000ff', glyph: 'ITÔ',   shape: 'portal', orbitSyms: ['∫','∂','Ω'] },
+
+            'brownian-beast-core':         { name: 'BROWNIAN BEAST CORE',         color: '#00f3ff', glow: '#00f3ff', glyph: '',   shape: 'boss-radiant' },
+            'volatility-titan-core':       { name: 'VOLATILITY TITAN CORE',       color: '#ff3366', glow: '#ff3366', glyph: '',   shape: 'boss-hex' },
+            'ito-architect':               { name: 'ITÔ ARCHITECT',               color: '#7fff8c', glow: '#7fff8c', glyph: 'I',  shape: 'boss-glyph' },
+            'black-swan-entity':           { name: 'BLACK SWAN ENTITY',           color: '#b000ff', glow: '#b000ff', glyph: '',   shape: 'boss-kite' },
+
+            'tail-risk-incarnate':         { name: 'TAIL RISK INCARNATE',         color: '#ff3366', glow: '#b000ff', glyph: '',   shape: 'mythic-jagged' },
+            'singularity-process':         { name: 'SINGULARITY PROCESS',         color: '#b000ff', glow: '#ffffff', glyph: '',   shape: 'mythic-rings' },
+            'infinite-variance':           { name: 'INFINITE VARIANCE',           color: '#ffd700', glow: '#ff3366', glyph: '',   shape: 'mythic-burst' },
+            'stochastic-ghost':            { name: 'STOCHASTIC GHOST',            color: '#ffffff', glow: '#00f3ff', glyph: '',   shape: 'mythic-ghost' },
+            'chaos-attractor':             { name: 'CHAOS ATTRACTOR',             color: '#b000ff', glow: '#7fff8c', glyph: '',   shape: 'mythic-loop' }
+        };
+        const SKIN_BOSS_MAP = { 'brownian-beast-core': 'brownian', 'volatility-titan-core': 'volatility', 'ito-architect': 'ito', 'black-swan-entity': 'swan' };
+
+        // Every transformation skin requires discovering its portal 10 times — tracked cumulatively
+        // across all runs via a persistent per-type counter. Mirrors the Knowledge Vault exactly.
+        const TRANSFORM_SKIN_MAP = { 'log': 'log-phantom', 'squared': 'quadratic-expansion', 'exponential': 'exponential-ascendant', 'mean_reversion': 'mean-reversion-anchor', 'vol_compression': 'volatility-compression-core', 'drift_amp': 'drift-amplifier', 'magnet': 'gravity-well', 'realm': 'ito-realm-avatar' };
+        const TRANSFORM_DISCOVER_GOAL = 10;
+        function recordTransformDiscovery(type) {
+            let skinId = TRANSFORM_SKIN_MAP[type];
+            if (!skinId) return;
+            try {
+                let key = 'stochastic_transform_count_' + type;
+                let count = parseInt(localStorage.getItem(key) || '0') + 1;
+                localStorage.setItem(key, count);
+                if (count >= TRANSFORM_DISCOVER_GOAL) tryUnlockSkin(skinId);
+            } catch(e) {}
+        }
+
+        // Fires the "SKIN UNLOCKED" notification exactly once per skin, ever — guarded by its own
+        // dedicated notify-flag so it can never repeat, even if the underlying unlock flag was set
+        // by separate code (e.g. Boss.onDefeat) moments earlier. Resetting save data clears every
+        // stochastic_* key, which is the only way this can ever fire again for a given skin.
+        function tryUnlockSkin(skinId) {
+            try {
+                let notifyKey = 'stochastic_skin_notified_' + skinId;
+                if (localStorage.getItem(notifyKey) === 'true') return;
+                localStorage.setItem(notifyKey, 'true');
+                let unlockKey = SKIN_BOSS_MAP[skinId] ? ('stochastic_boss_' + SKIN_BOSS_MAP[skinId]) : ('stochastic_skin_' + skinId);
+                if (localStorage.getItem(unlockKey) !== 'true') localStorage.setItem(unlockKey, 'true');
+                let def = SKIN_DEFS[skinId];
+                if (def) queuePopup('SKIN UNLOCKED', def.name, POPUP_PRIORITY.EVENT, 2800);
+            } catch(e) {}
+        }
+
+        // Watches every game-trackable skin's unlock condition every tick during active play. Cheap
+        // (a handful of comparisons + localStorage reads) so it runs unthrottled for instant feedback
+        // the moment a threshold is crossed. Node-based skins (Wiener Entity, Martingale Construct,
+        // Tail Risk Incarnate, Chaos Attractor) are earned in the Knowledge Vault's Concept Network
+        // instead, and are picked up here automatically the moment that page mirrors their flag.
+        function checkSkinUnlocks() {
+            try {
+                let liveDistance = parseInt(localStorage.getItem('stochastic_dist') || '0') + distance;
+                if (liveDistance >= 15000) tryUnlockSkin('sigma-volatility-core');
+                if (liveDistance >= 30000) tryUnlockSkin('singularity-process');
+                if (score >= 100000) tryUnlockSkin('infinite-variance');
+                if (stats.nearMisses >= 100) tryUnlockSkin('stochastic-ghost');
+
+                // Boss trophy skins already unlock entirely on their own (Boss.onDefeat is untouched) —
+                // this only surfaces the same "SKIN UNLOCKED" notification for them, never alters them.
+                for (let skinId in SKIN_BOSS_MAP) {
+                    if (localStorage.getItem('stochastic_boss_' + SKIN_BOSS_MAP[skinId]) === 'true') tryUnlockSkin(skinId);
+                }
+            } catch(e) {}
+        }
+
+        let selectedSkin = 'mu-navigator';
+        function isSkinUnlocked(id) {
+            if (id === 'mu-navigator') return true;
+            try {
+                if (SKIN_BOSS_MAP[id]) return localStorage.getItem('stochastic_boss_' + SKIN_BOSS_MAP[id]) === 'true';
+                return localStorage.getItem('stochastic_skin_' + id) === 'true';
+            } catch(e) { return false; }
+        }
+        function loadSelectedSkin() {
+            let chosen = 'mu-navigator';
+            try { chosen = localStorage.getItem('stochastic_selected_skin') || 'mu-navigator'; } catch(e) {}
+            selectedSkin = (SKIN_DEFS[chosen] && isSkinUnlocked(chosen)) ? chosen : 'mu-navigator';
+        }
+        loadSelectedSkin();
+        window.addEventListener('focus', loadSelectedSkin);
+
+        // PHYSICS VARS
+        const TWO_PI = Math.PI * 2;
+        const player = { x: 0, y: 0, vy: 0, size: 20, trail: [], visualPulse: 0, visualStoch: 0, hasShield: false, hasRevive: false };
+        let mu = 0, driftCharge = 5, sigma = 2, dW = 0, baseSigma = 2;
+        let activeShock = 0; 
+        
+        let obstacles = [], particles = [], portals = [], knowledgeNodes = [], volZones = [], powerupItems = [], scoreOrbs = [], backgroundEvents = [];
+        let playerProjectiles = [], enemyProjectiles = [];
+        
+        let activeBoss = null, inItoRealm = false, processType = 'standard';
+        let transformTimer = 0, transformMax = 720; 
+        let envRules = { bgColor: '#030412', gridColor: 'rgba(255,255,255,0.05)', gridWarp: false, theme: Themes[0] };
+
+        // Continuous stochastic wave field — layered phases evolve via a mean-reverting (OU) velocity
+        // so direction/speed wander organically but never jump, and amplitude eases toward its sigma-driven
+        // target rather than snapping, so storms/boss-fights/transformations never cause a visible "pop".
+        let waveField = {
+            phase: [0, 0, 0],
+            vel: [0.018, 0.013, 0.008],
+            amp: [150, 90, 50]
+        };
+        // Smoothed background color — canvas fillStyle has no native CSS transition, so we ease
+        // the rendered RGB toward whatever envRules.bgColor's target is, frame by frame.
+        let bgDisplayRGB = { r: 3, g: 4, b: 18 };
+        let gridWarpAmount = 0; // eases toward 0/1 instead of snapping when Itô Realm toggles
+
+        let autoFireTimer = 0, activePowerup = null, powerupTimer = 0;
+
+        // Priority tiers for the global popup queue — higher always pre-empts lower.
+        const POPUP_PRIORITY = { BOSS: 80, STORM: 65, EVENT: 60, TRANSFORM: 40, PICKUP: 28 };
+
+        const PORTAL_DEFS = {
+            'log': { stroke: '#ff3366', shadow: '#ff0000', text: 'ln(S)', msg: 'LOGARITHMIC FORM', desc: 'Variance amplified. Drift penalized. DANGER.', syms: ['−', '½', 'σ²'] },
+            'squared': { stroke: '#ffd700', shadow: '#00f3ff', text: 'Sₜ²', msg: 'QUADRATIC EXPANSION MODE', desc: 'The process has expanded in magnitude. Small fluctuations become insignificant relative to total size.', syms: ['+', 'σ²', 'S²'] },
+            'exponential': { stroke: '#7fff8c', shadow: '#ffd700', text: 'e^S', msg: 'EXPONENTIAL GROWTH', desc: 'Accelerated yield. High damage.', syms: ['e', '↑', 'μ'] },
+            'mean_reversion': { stroke: '#0055ff', shadow: '#00f3ff', text: 'θ(μ-S)', msg: 'MEAN REVERSION', desc: 'Noise dampened. Process stabilized.', syms: ['θ', '↔', 'μ'] },
+            'vol_compression': { stroke: '#b000ff', shadow: '#ffffff', text: 'σ↓', msg: 'VOLATILITY COMPRESSION', desc: 'Variance shrinking. Low-risk state.', syms: ['↓', 'σ', 'k'] },
+            'drift_amp': { stroke: '#00ffaa', shadow: '#00ffaa', text: 'μ↑', msg: 'DRIFT AMPLIFICATION', desc: 'Directional momentum highly increased.', syms: ['↑', 'μ', 'S'] },
+            'magnet': { stroke: '#7fff8c', shadow: '#ffd700', text: 'μ→', msg: 'DRIFT FIELD ACTIVATED', desc: 'Positive drift is attracting nearby states.', syms: ['μ', '→', 'S'] },
+            'realm': { stroke: '#b000ff', shadow: '#b000ff', text: 'ITÔ', msg: 'ITÔ REALM', desc: 'Mathematical laws warping.', syms: ['∫', '∂', 'Ω'] }
+        };
+
+        const uiEq = document.getElementById('ui-eq'), fillDrift = document.getElementById('fill-drift'), fillVol = document.getElementById('fill-volatility'), txtDrift = document.getElementById('txt-drift'), txtVol = document.getElementById('txt-vol');
+        const uiScore = document.getElementById('ui-score'), uiDist = document.getElementById('ui-dist'), multDisp = document.getElementById('multiplier-display'), reviveInd = document.getElementById('revive-indicator');
+        const dmgOverlay = document.getElementById('damage-overlay'), popupContainer = document.getElementById('popup-container'), phaseIndicator = document.getElementById('phase-indicator'), pauseOverlay = document.getElementById('pause-overlay'), hudContainer = document.getElementById('main-hud');
+        const powerupDisplay = document.getElementById('powerup-display'), postRunAnalysis = document.getElementById('post-run-analysis'), introSeq = document.getElementById('intro-sequence');
+        const transformContainer = document.getElementById('transform-timer-container'), transformBar = document.getElementById('transform-timer-bar');
+        
+        window.uiMu = null; window.uiSigma = null; window.uiDw = null; window.uiSts = null; window.termDrift = null; window.termVol = null; window.termProcess = null;
+
+        function randomNormal() { let u=0,v=0; while(u===0) u=Math.random(); while(v===0) v=Math.random(); return Math.sqrt(-2.0*Math.log(u))*Math.cos(2.0*Math.PI*v); }
+
+        // --- INPUT & PAUSE ---
+        window.addEventListener('keydown', (e) => { if(e.code === 'Space') isSpaceDown = true; if(e.code === 'Escape' || e.code === 'KeyP') togglePause(); });
+        window.addEventListener('keyup', (e) => { if(e.code === 'Space') isSpaceDown = false; });
+        window.addEventListener('touchstart', () => { isSpaceDown = true; }); 	window.addEventListener('touchend', () => { isSpaceDown = false; });
+
+        function togglePause() {
+            if(!isPlaying || isDead || isIntro || isRecovering) return; isPaused = !isPaused;
+            if(isPaused) { targetTimeScale = 0; pauseOverlay.classList.add('active'); hudContainer.style.opacity = 0.2; } 
+            else { targetTimeScale = 1.0; pauseOverlay.classList.remove('active'); hudContainer.style.opacity = 1; }
+        }
+
+        // --- UI MOTION & FEEDBACK SYSTEM ---
+        function spawnUIParticles(rect, count, color) {
+	    if (document.querySelectorAll('.ui-particle').length > 30) return;
+
+            for(let i=0; i<count; i++) {
+                let p = document.createElement('div'); p.className = 'ui-particle'; p.style.backgroundColor = color;
+                p.style.width = (Math.random() * 6 + 2) + 'px'; p.style.height = p.style.width;
+                p.style.left = (rect.left + rect.width/2) + 'px'; p.style.top = (rect.top + rect.height/2) + 'px';
+                document.body.appendChild(p);
+                let angle = Math.random() * Math.PI * 2, dist = Math.random() * 100 + 50;
+                let tx = Math.cos(angle) * dist, ty = Math.sin(angle) * dist;
+                p.animate([ { transform: `translate(0, 0) scale(1)`, opacity: 1 }, { transform: `translate(${tx}px, ${ty}px) scale(0)`, opacity: 0 } ], 
+                { duration: Math.random() * 500 + 500, easing: 'cubic-bezier(0.1, 0.9, 0.2, 1)' }).onfinish = () => p.remove();
+            }
+        }
+
+        function unlockAchievement(title, desc, symbol) {
+            const container = document.getElementById('achievement-container'); const card = document.createElement('div'); card.className = 'achieve-card';
+            card.innerHTML = `<div class="achieve-icon">${symbol}</div><div class="achieve-text"><h4>${title}</h4><p>${desc}</p></div>`;
+            container.appendChild(card);
+            requestAnimationFrame(() => { requestAnimationFrame(() => card.classList.add('show')); });
+            setTimeout(() => { card.classList.remove('show'); setTimeout(() => card.remove(), 600); }, 4000);
+        }
+
+        function spawnFloatingText(x, y, text, color) {
+            const el = document.createElement('div'); el.className = 'floating-text'; el.innerText = text; el.style.color = color;
+            el.style.left = x + 'px'; el.style.top = y + 'px'; document.body.appendChild(el); setTimeout(() => el.remove(), 1000);
+        }
+
+        function triggerNearMiss() {
+            stats.nearMisses++;
+            scoreMultiplier = Math.min(scoreMultiplier + 0.5, 5.0);
+            multDisp.innerText = `x${scoreMultiplier.toFixed(1)}`; multDisp.classList.add('active');
+            clearTimeout(window.multTimeout); window.multTimeout = setTimeout(() => { multDisp.classList.remove('active'); scoreMultiplier = 1.0; }, 3000);
+            document.body.classList.add('near-miss'); setTimeout(() => document.body.classList.remove('near-miss'), 150);
+            triggerScreenShake(8);
+            for(let i=0; i<15; i++) spawnParticle(player.x, player.y, envRules.theme.s, (Math.random()-0.5)*20, (Math.random()-0.5)*20, Math.random()*3+1, 30);
+            spawnFloatingText(player.x + 30, player.y - 30, "NEAR MISS!", envRules.theme.s);
+        }
+
+        // --- GLOBAL POPUP QUEUE MANAGER ---
+        // Ensures only one major popup is ever visible at a time. Anomaly warnings (system-alert)
+        // always win the screen; everything else queues by priority and plays back-to-back.
+        window.popupQueue = [];
+        window.popupActive = false;
+        window.popupCurrentPriority = -1;
+        window.popupTimers = [];
+
+        function queuePopup(title, desc, priority = POPUP_PRIORITY.EVENT, duration = 2200) {
+            const entry = { title, desc, priority, duration };
+
+            if (window.popupActive && priority > window.popupCurrentPriority) {
+                // Higher-priority message arrived mid-display — cut the current one short and jump the queue.
+                window.popupQueue.unshift(entry);
+                dismissActivePopup(true);
+                return;
+            }
+            window.popupQueue.push(entry);
+            window.popupQueue.sort((a, b) => b.priority - a.priority);
+            processPopupQueue();
+        }
+
+        function dismissActivePopup(fast) {
+            if (window.popupTimers) { window.popupTimers.forEach(clearTimeout); window.popupTimers = []; }
+            let popContainer = document.getElementById('popup-container');
+            popContainer.classList.remove('visible');
+            popContainer.style.opacity = 0;
+            window.popupTimers.push(setTimeout(() => {
+                popContainer.style.display = 'none';
+                window.popupActive = false;
+                processPopupQueue();
+            }, fast ? 150 : 400));
+        }
+
+        function processPopupQueue() {
+            if (window.popupActive) return;
+            if (document.body.classList.contains('warning-active')) return; // anomaly alerts always win the screen
+            if (window.popupQueue.length === 0) return;
+
+            window.popupQueue.sort((a, b) => b.priority - a.priority);
+            let next = window.popupQueue.shift();
+            window.popupActive = true;
+            window.popupCurrentPriority = next.priority;
+
+            let popContainer = document.getElementById('popup-container');
+            popContainer.style.display = 'block';
+
+            requestAnimationFrame(() => {
+                document.getElementById('popup-title').innerText = next.title;
+                document.getElementById('popup-desc').innerText = next.desc;
+                popContainer.classList.add('visible');
+                popContainer.style.opacity = 1;
+
+                let rect = popContainer.getBoundingClientRect();
+                spawnUIParticles(rect, 12, envRules.theme.s);
+
+                window.popupTimers.push(setTimeout(() => {
+                    popContainer.classList.remove('visible');
+                    popContainer.style.opacity = 0;
+
+                    window.popupTimers.push(setTimeout(() => {
+                        popContainer.style.display = 'none';
+                        window.popupActive = false;
+                        processPopupQueue();
+                    }, 400));
+
+                    window.popupTimers.push(setTimeout(() => spawnUIParticles(popContainer.getBoundingClientRect(), 15, envRules.theme.s), 180));
+                }, next.duration));
+            });
+        }
+
+        // Legacy alias — keeps any unconverted call sites working with sane defaults.
+        function showPopup(title, desc) { queuePopup(title, desc, POPUP_PRIORITY.EVENT, 2200); }
+
+        // --- DEATH SEQUENCE & POST-RUN ---
+        function triggerDeathSequence() {
+            if(isDead || isRecovering) return;
+            isDead = true; deathTimer = 0; targetTimeScale = 0; timeScale = 0; 
+
+            // Clean up popups
+            if (window.popupTimers) { window.popupTimers.forEach(clearTimeout); window.popupTimers = []; }
+            window.popupQueue = []; window.popupActive = false;
+            document.getElementById('system-alert').style.opacity = 0;
+            document.body.classList.remove('warning-active');
+            popupContainer.classList.remove('visible');
+            popupContainer.style.opacity = 0;
+
+            hudContainer.classList.add('glitch-extreme');
+            triggerScreenShake(20);
+            dmgOverlay.style.boxShadow = "inset 0 0 200px var(--accent-red)";
+        }
+
+        function handleDeathFrames() {
+            deathTimer++;
+            if(deathTimer === 60) {
+                hudContainer.style.opacity = 0; hudContainer.classList.remove('glitch-extreme');
+                triggerExplosion(player.x, player.y, '#ff3366');
+                for(let i=0; i<30; i++) spawnParticle(player.x, player.y, '#fff', (Math.random()-0.5)*30, (Math.random()-0.5)*30, Math.random()*5+2, 100);
+                
+                const syms = ['μ', 'σ', 'dW', '∫', '∂'];
+                for(let i=0; i<40; i++) {
+                    particles.push({
+                        x: player.x, y: player.y, speedX: (Math.random()-0.5)*25, speedY: (Math.random()-0.5)*25,
+                        life: 150, maxLife: 150, text: syms[Math.floor(Math.random()*syms.length)],
+                        color: ['#ff3366', '#00f3ff', '#7fff8c', '#ffd700'][Math.floor(Math.random()*4)]
+                    });
+                }
+                timeScale = 0.15; targetTimeScale = 0.15;
+            }
+            if(deathTimer === 160) showPostRunAnalysis();
+        }
+
+        function triggerMartingaleRecovery() {
+            isRecovering = true; recoveryTimer = 60; targetTimeScale = 0; timeScale = 0;
+            triggerExplosion(player.x, player.y, '#ffd700', 60); triggerScreenShake(30);
+            queuePopup("MARTINGALE RECOVERY ACTIVATED", "Returning to equilibrium state.", POPUP_PRIORITY.EVENT, 2400);
+            enemyProjectiles.length = 0; playerProjectiles.length = 0; obstacles.length = 0; volZones.length = 0;
+            particles.push({x: player.x, y: player.y, color: 'rgba(255, 215, 0, 0.8)', type: 'wave', speedX: 0, speedY: 0, size: 0, maxLife: 60, life: 60});
+            player.visualPulse += 0.5;
+        }
+
+        function showPostRunAnalysis() {
+            postRunAnalysis.classList.add('active');
+            document.getElementById('pra-seed-val').innerText = randomSeedStr;
+            let sessionTime = survivalFrames / 60;
+            	    let sessionAvgVol = stats.volSum / Math.max(1, stats.volTicks);
+            
+             	    // Animate UI
+                    animateStat('pra-score', score, "", true);
+            	    animateStat('pra-time', sessionTime, "s", false); 
+            	    animateStat('pra-dist', distance, "m", true);
+            	    animateStat('pra-vol', sessionAvgVol, "σ", false); 
+            	    animateStat('pra-drift', stats.maxDrift, "μ", false);
+            	    animateStat('pra-nodes', stats.nodes, "", true); 
+            	    animateStat('pra-misses', stats.nearMisses, "", true); 
+            	    animateStat('pra-bosses', stats.bosses, "", true);
+
+	    let totalNodes = parseInt(localStorage.getItem('stochastic_nodes') || '0') + stats.nodes;
+            localStorage.setItem('stochastic_nodes', totalNodes);
+            
+            let totalDist = parseInt(localStorage.getItem('stochastic_dist') || '0') + distance;
+            localStorage.setItem('stochastic_dist', totalDist);
+            
+            let totalTime = parseFloat(localStorage.getItem('stochastic_total_time') || '0') + sessionTime;
+            localStorage.setItem('stochastic_total_time', totalTime);
+            
+            let currentMaxDist = parseInt(localStorage.getItem('stochastic_max_dist') || '0');
+            if (distance > currentMaxDist) localStorage.setItem('stochastic_max_dist', distance);
+            
+            let currentAvgVol = parseFloat(localStorage.getItem('stochastic_avg_vol') || '2.0');
+            localStorage.setItem('stochastic_avg_vol', ((currentAvgVol + sessionAvgVol) / 2).toFixed(2));
+        }
+
+        function animateStat(id, target, suffix, isInt) {
+            let el = document.getElementById(id), start = performance.now(), duration = 2000;
+            function update(t) {
+                let p = Math.min((t - start) / duration, 1); let ease = 1 - Math.pow(1 - p, 3); let val = target * ease;
+                el.innerText = (isInt ? Math.floor(val) : val.toFixed(2)) + suffix;
+                if(p < 1) requestAnimationFrame(update);
+            }
+            requestAnimationFrame(update);
+        }
+
+        // --- PROCEDURAL DIRECTOR & SAFE SPAWNING ---
+        const Director = {
+            phase: 1, difficulty: 1.0, lastObsDist: 0, lastEventDist: 0, stormActive: false, stormTimer: 0, warningPhase: 0, pendingBoss: null, lastBoss: null,
+            
+            triggerWarning: function(bossId) {
+                let title = "", desc = "";
+                if (bossId === 'brownian') { title = "BROWNIAN BEAST APPROACHING"; desc = "Pure stochastic motion has destabilized the simulation."; }
+                else if (bossId === 'volatility') { title = "VOLATILITY TITAN APPROACHING"; desc = "Variance is increasing beyond expected limits."; }
+                else if (bossId === 'ito') { title = "ITÔ ARCHITECT APPROACHING"; desc = "Reality transformations detected."; }
+                else if (bossId === 'swan') { title = "BLACK SWAN EVENT APPROACHING"; desc = "Extreme tail-risk event entering simulation."; }
+                
+                let tEl = document.getElementById('sys-alert-title');
+                let dEl = document.getElementById('sys-alert-desc');
+                if (tEl) tEl.innerText = title;
+                if (dEl) dEl.innerText = desc;
+                
+                // Anomaly alerts always win the screen — clear anything competing for space.
+                window.popupQueue = [];
+                if (window.popupActive) dismissActivePopup(true);
+                
+                document.body.classList.add('warning-active');
+                this.warningPhase = 180; // 5 seconds warning phase before spawn
+            },
+
+            update: function(dist) {
+                if(isIntro || isRecovering) return;
+
+                this.difficulty = 1.0 + (dist / 5000);
+                if(dist > 1500 && this.phase === 1) this.setPhase(2, "STOCHASTIC VARIANCE");
+                if(dist > 3500 && this.phase === 2) this.setPhase(3, "TRANSFORMATION ALGEBRA");
+                if(dist > 6000 && this.phase === 3) this.setPhase(4, "THE INFINITE DRIFT");
+
+                if (this.warningPhase > 0) {
+                    this.warningPhase -= timeScale;
+		    if (this.warningPhase <= 0) { 
+                        document.body.classList.remove('warning-active'); 
+                        this.triggerBoss(this.pendingBoss); 
+                        this.pendingBoss = null; 
+                        processPopupQueue();
+                    }
+                    return; 
+                }
+
+                if (!activeBoss && this.warningPhase <= 0 && timeScale > 0.1) {
+                    if (dist > 1000 && Math.random() < 0.0003) { 
+                        let pool = ['brownian'];
+                        if(dist > 1500) pool.push('volatility');
+                        if(dist > 3000) pool.push('ito');
+                        if(dist > 5000) pool.push('swan');
+                        pool = pool.filter(b => b !== this.lastBoss);
+                        if(pool.length === 0) pool = ['brownian'];
+                        
+                        this.pendingBoss = pool[Math.floor(Math.random() * pool.length)];
+                        this.lastBoss = this.pendingBoss;
+                        this.triggerWarning(this.pendingBoss);
+                    }
+                }
+
+                let obsDifficulty = this.difficulty;
+                let obsInterval = Math.max(200, 700 - (obsDifficulty * 120));
+                if (processType === 'log') obsInterval *= 0.6; 
+
+                if (!activeBoss && this.warningPhase <= 0 && timeScale > 0.1) {
+                    if (dist - this.lastObsDist > obsInterval) { spawnObstacle(this.difficulty, this.phase); this.lastObsDist = dist; }
+
+                    if (dist - this.lastEventDist > 800) {
+                        let r = Math.random();
+                        if (this.phase >= 2 && r < 0.2) { spawnVolatilityZone(); this.lastEventDist = dist; } 
+                        else if (this.phase >= 4 && r > 0.8 && !this.stormActive) { this.triggerStorm(); this.lastEventDist = dist; }
+                    }
+                    if (Math.random() < 0.005 * timeScale) spawnKnowledgeNode();
+                    if (Math.random() < 0.02 * timeScale) spawnScoreOrb();
+                    
+                    if (Math.random() < 0.001 * timeScale) spawnPowerup(false); 
+                    
+                    if (Math.random() < 0.002 * timeScale && !inItoRealm && ['standard', 'brownian', 'volatility', 'ito', 'swan'].includes(processType)) spawnPortal();
+                }
+
+                if (this.stormActive && timeScale > 0.1) {
+                    this.stormTimer -= timeScale;
+                    if (this.stormTimer <= 0) {
+                        this.stormActive = false; sigma = baseSigma; envRules.bgColor = inItoRealm ? '#110022' : envRules.theme.bg;
+                        queuePopup("STORM CLEARED", "Variance returning to baseline.", POPUP_PRIORITY.EVENT, 2200);
+                    } else {
+                        envRules.bgColor = '#1a0505'; sigma = baseSigma * 2.5;
+                        if(Math.random() < 0.5 * timeScale) triggerScreenShake(1);
+                        if(Math.random() < 0.2 * timeScale) spawnParticle(width, Math.random()*height, 'rgba(255,255,255,0.2)', -20, 5, Math.random()*2+1, 30);
+                    }
+                    
+                    if (Math.random() < 0.02 * timeScale) {
+                        backgroundEvents.push({ type: 'flash', life: 20, maxLife: 20, color: 'rgba(255, 51, 102, 0.1)' });
+                    }
+                }
+            },
+            setPhase: function(num, name) {
+                this.phase = num; envRules.theme = Themes[(num-1) % Themes.length]; updateThemeCSS();
+                phaseIndicator.style.opacity = 0; setTimeout(() => { phaseIndicator.innerText = `PHASE ${num}: ${name}`; phaseIndicator.style.opacity = 1; }, 500);
+            },
+            triggerBoss: function(type) {
+                document.body.classList.add('boss-active'); 
+                if (type === 'brownian') activeBoss = new BrownianBeast();
+                if (type === 'volatility') activeBoss = new VolatilityTitan();
+                if (type === 'ito') activeBoss = new ItoArchitect();
+                if (type === 'swan') activeBoss = new BlackSwan();
+                obstacles = []; volZones = []; enemyProjectiles = [];
+                processType = type; 
+                // The boss's mathematical identity must be visible the instant combat starts —
+                // dissolve whatever equation was showing and let the boss equation resolve into view.
+                fadeEquationTransition(() => updateEquationHUD());
+                // Any collectible timer left running from before the encounter is no longer
+                // mechanically active once the boss equation takes over — validate immediately.
+                validatePowerupTimers();
+            },
+            triggerStorm: function() { this.stormActive = true; this.stormTimer = 400; queuePopup("BROWNIAN STORM", "Massive volatility approaching.", POPUP_PRIORITY.STORM, 2400); }
+        };
+
+        function updateThemeCSS() {
+            document.documentElement.style.setProperty('--theme-primary', envRules.theme.p);
+            document.documentElement.style.setProperty('--theme-secondary', envRules.theme.s);
+            if(!inItoRealm && !Director.stormActive) envRules.bgColor = envRules.theme.bg;
+        }
+
+        function getSafeSpawnPos(baseX, ownRadius = 20, buffer = 50) {
+            let safeX = baseX;
+            for (let attempt = 0; attempt < 60; attempt++) {
+                let testX = safeX + 150 + Math.random() * 300;
+                let testY = 100 + Math.random() * (height - 200);
+                let isSafe = true;
+                let clearance = ownRadius + buffer;
+
+                // 1. Structural obstacles (spikes, clouds, barriers)
+                for (let s of obstacles) {
+                    if (s.type === 'spike') {
+                        let sY = s.isTop ? 0 : height;
+                        let hitDistX = Math.abs(testX - s.x), hitDistY = Math.abs(testY - sY);
+                        if (hitDistX < (s.w/2 + clearance) && hitDistY < (s.h + clearance)) { isSafe = false; break; }
+                    } else if (s.type === 'cloud') {
+                        let dx = testX - s.x, dy = testY - s.y;
+                        if (Math.sqrt(dx*dx + dy*dy) < (s.radius + clearance)) { isSafe = false; break; }
+                    } else if (s.type === 'barrier') {
+                        let hitDistX = Math.abs(testX - s.x), hitDistY = Math.abs(testY - s.y);
+                        if (hitDistX < (s.w/2 + clearance) && hitDistY < (s.h/2 + clearance)) { isSafe = false; break; }
+                    }
+                }
+                if (!isSafe) { safeX += 150; continue; }
+
+                // 2. Every other collectible/portal already in the world — never let two stack
+                const allItems = [...powerupItems, ...portals, ...knowledgeNodes, ...scoreOrbs];
+                for (let item of allItems) {
+                    let dx = testX - item.x, dy = testY - item.y;
+                    let itemRad = item.radius || 30;
+                    if (Math.sqrt(dx*dx + dy*dy) < (itemRad + clearance)) { isSafe = false; break; }
+                }
+                if (!isSafe) { safeX += 150; continue; }
+
+                // 3. Active boss hitbox
+                if (activeBoss) {
+                    let dx = testX - activeBoss.x, dy = testY - activeBoss.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < (160 + clearance)) isSafe = false;
+                }
+                if (!isSafe) { safeX += 150; continue; }
+
+                // 4. Projectiles currently in flight near the spawn zone
+                for (let ep of enemyProjectiles) {
+                    let dx = testX - ep.x, dy = testY - ep.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < ((ep.radius || 20) + clearance)) { isSafe = false; break; }
+                }
+                if (!isSafe) { safeX += 150; continue; }
+
+                // 5. Keep clear of the play-field vertical edges
+                if (testY < 80 + ownRadius || testY > height - 80 - ownRadius) isSafe = false;
+
+                if (isSafe) return { x: testX, y: testY };
+            }
+            // Guaranteed-clear fallback: far down the track, vertically centered
+            return { x: safeX + 1500, y: height / 2 };
+        }
+
+        // Obstacles spawn on a fixed cadence at a fixed x-position (they can't search for an open
+        // spot the way collectibles do), so the safety check has to run the other direction here:
+        // any collectible left sitting where a freshly-spawned obstacle now occupies is relocated/removed.
+        function purgeCollectiblesNear(obstacle) {
+            const margin = 60;
+            // Hard guarantee: this function only ever resolves spawn collisions between two things
+            // that are BOTH still off-screen. Anything already visible to the player is untouchable,
+            // by construction, regardless of how the distance math below evaluates.
+            const stillOffscreen = (item) => item.x > width;
+
+            let proximityFn;
+            if (obstacle.type === 'spike') {
+                let sY = obstacle.isTop ? 0 : height;
+                proximityFn = (item) => {
+                    let dx = Math.abs(item.x - obstacle.x), dy = Math.abs(item.y - sY);
+                    return !(dx < obstacle.w/2 + margin + (item.radius||20) && dy < obstacle.h + margin + (item.radius||20));
+                };
+            } else if (obstacle.type === 'cloud') {
+                proximityFn = (item) => {
+                    let dx = item.x - obstacle.x, dy = item.y - obstacle.y;
+                    return Math.sqrt(dx*dx + dy*dy) > obstacle.radius + margin + (item.radius||20);
+                };
+            } else if (obstacle.type === 'barrier') {
+                proximityFn = (item) => {
+                    let dx = Math.abs(item.x - obstacle.x), dy = Math.abs(item.y - obstacle.y);
+                    return !(dx < obstacle.w/2 + margin + (item.radius||20) && dy < obstacle.h/2 + margin + (item.radius||20));
+                };
+            } else return;
+
+            const testFn = (item) => !stillOffscreen(item) || proximityFn(item);
+
+            powerupItems = powerupItems.filter(testFn);
+            portals = portals.filter(testFn);
+            knowledgeNodes = knowledgeNodes.filter(testFn);
+            scoreOrbs = scoreOrbs.filter(testFn);
+        }
+
+        // --- PROCEDURAL ENTITY SPAWNING ---
+        function spawnObstacle(difficulty, phase) {
+            let r = Math.random(); let type = 'spike';
+            if (phase >= 2 && r > 0.6) type = 'cloud';
+            if (phase >= 3 && r > 0.8) type = 'barrier';
+
+            let w = 100 + Math.random() * 50;
+            let gapSize = Math.max(120, height * (0.5 - (difficulty * 0.05))); 
+            let gapY = (gapSize/2 + 50) + Math.random() * (height - gapSize - 100);
+
+            if (type === 'spike') {
+                let topH = gapY - gapSize/2, botH = height - (gapY + gapSize/2);
+                let top = { type: 'spike', x: width + w/2, w: w, h: topH, isTop: true, vertices: [{x: width+w, y:0}, {x: width+w/2, y:topH}, {x: width, y:0}], passed: false, nearMissed: false };
+                let bot = { type: 'spike', x: width + w/2, w: w, h: botH, isTop: false, vertices: [{x: width+w, y:height}, {x: width+w/2, y:height-botH}, {x: width, y:height}], passed: false, nearMissed: false };
+                obstacles.push(top, bot);
+                purgeCollectiblesNear(top); purgeCollectiblesNear(bot);
+            } else if (type === 'cloud') { 
+                let cloud = { type: 'cloud', x: width + 100, y: gapY + (Math.random()>0.5?gapSize:-gapSize), radius: 80 + Math.random()*40, rotation: 0, passed: false, nearMissed: false };
+                obstacles.push(cloud); purgeCollectiblesNear(cloud);
+            } else if (type === 'barrier') { 
+                let barrier = { type: 'barrier', x: width + 50, y: gapY, w: 40, h: gapSize * 1.5, passed: false, nearMissed: false };
+                obstacles.push(barrier); purgeCollectiblesNear(barrier);
+            }
+        }
+
+        function spawnScoreOrb() { 
+            let pos = getSafeSpawnPos(width + 50, 5, 40);
+            scoreOrbs.push({ x: pos.x, y: pos.y, radius: 5, active: true, hoverTimer: Math.random()*100 }); 
+        }
+        
+        function spawnPowerup(isBoss) {
+            let t; let r = Math.random();
+            let pos = getSafeSpawnPos(width + 150, 20, 55);
+            if (isBoss) {
+                // Bosses do NOT drop squared mode to preserve their mathematical identity
+                if(r > 0.80) t = 'revive';       
+                else if(r > 0.60) t = 'shield';  
+                else if(r > 0.40) t = 'knowledge';
+                else if(r > 0.20) t = 'volatility';
+                else t = 'eigen';   
+                
+                powerupItems.push({ x: pos.x, y: pos.y, type: t, radius: 20, isBossDrop: true });
+            } else {
+                if(r > 0.85) t = 'revive'; else t = 'shield';
+                powerupItems.push({ x: pos.x, y: pos.y, type: t, radius: 20 });
+            }
+        }
+        
+        function spawnVolatilityZone() { volZones.push({ x: width + 400, w: 800 + Math.random() * 600, active: true }); }
+        
+        function spawnKnowledgeNode() { 
+            let pos = getSafeSpawnPos(width + 50, 15, 45);
+            knowledgeNodes.push({ x: pos.x, y: pos.y, radius: 15, active: true }); 
+        }
+        
+        function spawnPortal() { 
+            let types = ['log', 'squared', 'exponential', 'mean_reversion', 'vol_compression', 'drift_amp', 'magnet', 'realm'];
+            let pos = getSafeSpawnPos(width + 100, 60, 70);
+            portals.push({ x: pos.x, y: pos.y, radius: 60, type: types[Math.floor(Math.random()*types.length)], active: true }); 
+        }
+        
+        function spawnParticle(x, y, color, speedX, speedY, size, life, type='normal') { 
+		particles.push({x, y, color, speedX, speedY, size, life, maxLife: life, type: type});
+		if (particles.length > 300) particles.splice(0, particles.length - 300);
+	}
+        
+        function triggerScreenShake(amount) { screenShake = amount; }
+        function triggerExplosion(x, y, color, amount=30) { for(let i=0; i<amount; i++) spawnParticle(x, y, color, (Math.random()-0.5)*15, (Math.random()-0.5)*15, Math.random()*4+2, 60); }
+
+        function hexToRgb(hex) {
+            hex = hex.replace('#', '');
+            if (hex.length === 3) hex = hex.split('').map(c => c+c).join('');
+            let num = parseInt(hex, 16);
+            return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+        }
+
+        // Advances the continuous stochastic wave field and eases the background color / grid-warp
+        // amount toward their current targets. Decoupling these visuals from instant state snaps
+        // (sigma spikes, boss color flips, realm toggles) is what keeps the background feeling
+        // continuous instead of jerking whenever the underlying game state changes abruptly.
+        function updateAmbientVisuals() {
+            let targetBase = 150 + sigma * 10;
+            const targets = [targetBase, targetBase * 0.6, targetBase * 0.35];
+            const meanVel = [0.018, 0.013, 0.008];
+            for (let i = 0; i < 3; i++) {
+                waveField.vel[i] += (randomNormal() * 0.0006 - (waveField.vel[i] - meanVel[i]) * 0.02) * timeScale;
+                waveField.vel[i] = Math.max(0.004, Math.min(0.035, waveField.vel[i]));
+                waveField.phase[i] += waveField.vel[i] * timeScale;
+                waveField.amp[i] += (targets[i] - waveField.amp[i]) * 0.04 * timeScale;
+            }
+
+            let targetRGB = hexToRgb(envRules.bgColor);
+            bgDisplayRGB.r += (targetRGB.r - bgDisplayRGB.r) * 0.05 * timeScale;
+            bgDisplayRGB.g += (targetRGB.g - bgDisplayRGB.g) * 0.05 * timeScale;
+            bgDisplayRGB.b += (targetRGB.b - bgDisplayRGB.b) * 0.05 * timeScale;
+
+            let targetWarp = envRules.gridWarp ? 1 : 0;
+            gridWarpAmount += (targetWarp - gridWarpAmount) * 0.06 * timeScale;
+        }
+
+        // --- ITÔ REALM LOGIC ---
+        function toggleItoRealm() {
+            inItoRealm = !inItoRealm;
+            if(inItoRealm) {
+                queuePopup("ITÔ REALM ENTERED", "Mathematical laws are warping.", POPUP_PRIORITY.TRANSFORM, 2200);
+                envRules.bgColor = '#110022'; envRules.gridColor = 'rgba(255, 215, 0, 0.15)'; envRules.gridWarp = true;
+                document.getElementById('vfx-overlay').style.boxShadow = `inset 0 0 150px rgba(176, 0, 255, 0.2)`;
+            } else {
+                queuePopup("REALITY STABILIZED", "Returning to Euclidean space.", POPUP_PRIORITY.TRANSFORM, 2200);
+                envRules.bgColor = envRules.theme.bg; envRules.gridColor = 'rgba(255,255,255,0.05)'; envRules.gridWarp = false; processType = 'standard';
+                updateEquationHUD(); document.getElementById('vfx-overlay').style.boxShadow = `inset 0 0 0px rgba(176, 0, 255, 0)`;
+            }
+        }
+        
+        function applyTransformation(type) {
+            if (activeBoss) return; // Lock transformations from overriding boss equation
+            
+            if (type !== 'standard') recordTransformDiscovery(type);
+            
+            if (type === 'realm') { toggleItoRealm(); return; }
+            processType = type;
+            let def = PORTAL_DEFS[type];
+            if (type !== 'standard') {
+                if(def) { 
+                    console.log("[DEBUG] Transformation activated:", type); 
+                    queuePopup(def.msg, def.desc, POPUP_PRIORITY.TRANSFORM, 2200); 
+                    triggerScreenShake(type==='squared'?25:15); 
+                }
+                transformTimer = type === 'squared' ? 600 : transformMax;
+                transformContainer.style.opacity = 1;
+            } else {
+                // Always explicitly clear the timer/bar on return to standard — this is the
+                // single source of truth that prevents the countdown UI from ever sticking
+                // around after its effect has actually ended, regardless of caller.
+                transformTimer = 0;
+                transformContainer.style.opacity = 0;
+            }
+            if (processType === 'squared') document.body.classList.add('squared-mode');
+            else document.body.classList.remove('squared-mode');
+            
+            updateEquationHUD();
+        }
+
+        function updateEquationHUD() {
+            if (processType === 'standard' || processType === 'magnet') {
+                uiEq.innerHTML = `<span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term"><span class="eq-mu" id="ui-mu">μ</span><span class="eq-st">S<sub>t</sub></span>dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span>`;
+            }
+            else if (processType === 'log') {
+                uiEq.innerHTML = `<span style="color:#ff3366"><span id="term-process" class="eq-term">d(ln S<sub>t</sub>)</span> = <span id="term-drift" class="eq-term">(<span class="eq-mu" id="ui-mu">μ</span> - ½<span class="eq-sigma" id="ui-sigma">σ</span>²)dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span></span>`;
+            }
+            else if (processType === 'squared') {
+                uiEq.innerHTML = `<span style="color:#ffd700"><span id="term-process" class="eq-term">d(S<sub>t</sub>²)</span> = <span id="term-drift" class="eq-term">(2<span class="eq-mu" id="ui-mu">μ</span> + <span class="eq-sigma" id="ui-sigma">σ</span>²)<span class="eq-st">S<sub>t</sub>²</span>dt</span> + <span id="term-vol" class="eq-term">2<span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">S<sub>t</sub>²</span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span></span>`;
+            }
+            else if (processType === 'exponential') {
+                uiEq.innerHTML = `<span style="color:#7fff8c"><span id="term-process" class="eq-term">d(e<sup>S<sub>t</sub></sup>)</span> = <span id="term-drift" class="eq-term"><span class="eq-st">e<sup>S<sub>t</sub></sup></span>(<span class="eq-mu" id="ui-mu">μ</span> + ½<span class="eq-sigma" id="ui-sigma">σ</span>²)dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">e<sup>S<sub>t</sub></sup></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span></span>`;
+            }
+            else if (processType === 'mean_reversion') {
+                uiEq.innerHTML = `<span style="color:#0055ff"><span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term">θ(<span class="eq-mu" id="ui-mu">μ</span> - <span class="eq-st">S<sub>t</sub></span>)dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span></span>`;
+            }
+            else if (processType === 'vol_compression') {
+                uiEq.innerHTML = `<span style="color:#b000ff"><span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term"><span class="eq-mu" id="ui-mu">μ</span><span class="eq-st">S<sub>t</sub></span>dt</span> + <span id="term-vol" class="eq-term">(<span class="eq-sigma" id="ui-sigma">σ</span>/k)<span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span></span>`;
+            }
+            else if (processType === 'drift_amp') {
+                uiEq.innerHTML = `<span style="color:#00ffaa"><span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term">(k·<span class="eq-mu" id="ui-mu">μ</span>)<span class="eq-st">S<sub>t</sub></span>dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span></span>`;
+            }
+            else if (processType === 'brownian') {
+                uiEq.innerHTML = `<span id="term-process" class="eq-term"><span id="boss-eq-reactive" class="eq-dw">dW<sub>t</sub></span> ∼ N(0, dt)</span>`;
+            }
+            else if (processType === 'volatility') {
+                uiEq.innerHTML = `<span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="boss-eq-reactive" class="eq-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span>`;
+            }
+            else if (processType === 'ito') {
+                uiEq.innerHTML = `<span id="term-process" class="eq-term">df</span> = (<span class="eq-term">∂f/∂t</span> + <span class="eq-mu" id="ui-mu">μ</span><span class="eq-term">∂f/∂x</span> + <span id="boss-eq-reactive" class="eq-term">½<span class="eq-sigma" id="ui-sigma">σ</span>²∂²f/∂x²</span>)dt + <span class="eq-sigma" id="ui-sigma-2">σ</span><span class="eq-term">∂f/∂x</span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span>`;
+            }
+            else if (processType === 'swan') {
+                uiEq.innerHTML = `<span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term"><span class="eq-mu" id="ui-mu">μ</span><span class="eq-st">S<sub>t</sub></span>dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span> + <span id="boss-eq-reactive" class="eq-jump" style="color:#ff00ff; text-shadow:0 0 15px #ff00ff;">J<sub>t</sub>dN<sub>t</sub></span>`;
+            }
+            
+            window.uiMu = document.getElementById('ui-mu');
+            window.uiSigma = document.getElementById('ui-sigma');
+            window.uiDw = document.getElementById('ui-dw');
+            window.uiSts = document.querySelectorAll('.eq-st');
+            window.termDrift = document.getElementById('term-drift');
+            window.termVol = document.getElementById('term-vol');
+            window.termProcess = document.getElementById('term-process');
+            window.uiJump = document.getElementById('boss-eq-reactive');
+            
+            uiEq.style.borderColor = PORTAL_DEFS[processType] ? PORTAL_DEFS[processType].stroke : 'rgba(127, 255, 140, 0.2)';
+        }
+
+        // Lights up the active boss's reactive equation term — called at the exact moment that
+        // boss's signature attack fires, so players subconsciously link the math to the action.
+        function pulseBossEquationTerm() {
+            let el = document.getElementById('boss-eq-reactive');
+            if (!el) return;
+            el.classList.remove('boss-eq-flash');
+            void el.offsetWidth; // force reflow so the animation can restart on rapid re-triggers
+            el.classList.add('boss-eq-flash');
+            clearTimeout(window._bossEqPulseTimer);
+            window._bossEqPulseTimer = setTimeout(() => el.classList.remove('boss-eq-flash'), 650);
+        }
+
+        // Ensures no powerup/transformation timer UI can ever go stale or get stuck on screen,
+        // particularly across boss encounter boundaries where processType is overwritten directly.
+        function validatePowerupTimers() {
+            if (!activePowerup || powerupTimer <= 0) {
+                activePowerup = null; powerupTimer = 0; powerupDisplay.style.opacity = 0;
+            }
+            const persistentTypes = ['standard', 'brownian', 'volatility', 'ito', 'swan'];
+            if (persistentTypes.includes(processType) || transformTimer <= 0) {
+                transformTimer = 0; transformContainer.style.opacity = 0;
+            }
+        }
+
+        // Smoothly dissolves the equation HUD, runs applyFn while invisible, then fades it back in.
+        // Used for boss-encounter equation transitions so the equation never instantly swaps.
+        function fadeEquationTransition(applyFn) {
+            if (window._eqFadeTimer) clearTimeout(window._eqFadeTimer);
+            uiEq.classList.add('collapsing');
+            window._eqFadeTimer = setTimeout(() => {
+                applyFn();
+                requestAnimationFrame(() => uiEq.classList.remove('collapsing'));
+            }, 480);
+        }
+
+        function updateEquationHighlights() {
+            if(!window.termDrift) return;
+            window.termDrift.className = 'eq-term'; window.termVol.className = 'eq-term'; 
+            if(window.termProcess) window.termProcess.className = 'eq-term';
+            if(window.uiSts) window.uiSts.forEach(el => el.className = 'eq-st');
+
+            if (player.hasShield && window.termVol) window.termVol.classList.add('highlight-cyan');
+            if (player.hasRevive && window.uiSts) window.uiSts.forEach(el => el.classList.add('highlight-gold'));
+            if (processType === 'magnet' && window.termDrift) window.termDrift.classList.add('highlight-green');
+            if (processType === 'squared' && window.termProcess) window.termProcess.classList.add('highlight-gold');
+            if (processType === 'log' && window.termProcess) window.termProcess.classList.add('highlight-red');
+        }
+
+        // --- BOSS ARCHITECTURE & AI ---
+        class Boss {
+            constructor(config) {
+                this.id = config.id; this.name = config.name; this.color = config.color;
+                this.hp = 400; this.maxHp = 400; this.state = 'INTRO'; this.timer = 0; this.x = width * 0.8; this.y = height / 2; this.active = true;
+                const bUi = document.getElementById('boss-ui'); bUi.classList.add('visible');
+                document.getElementById('boss-name').innerText = this.name; document.getElementById('boss-name').style.color = this.color;
+                document.getElementById('boss-hp').style.backgroundColor = this.color; document.getElementById('boss-hp').style.width = '100%';
+                this.lastHpPercent = "100.0"; // DOM Cache
+            }
+            update() {
+                if(!this.active) return;
+                this.timer += timeScale;
+                if(this.state === 'INTRO' && this.timer > 120) { this.state = 'PHASE1'; this.onPhase1(); }
+                if(this.state === 'PHASE1') {
+                    // OPTIMIZATION: Only update DOM style if string actually changed
+                    let hpPercent = Math.max((this.hp / this.maxHp) * 100, 0).toFixed(1); 
+                    if (this.lastHpPercent !== hpPercent) {
+                        document.getElementById('boss-hp').style.width = hpPercent + '%';
+                        this.lastHpPercent = hpPercent;
+                    }
+                    if(this.hp <= 0) { this.state = 'DEFEAT'; this.timer = 0; this.onDefeat(); }
+                }
+                this.customUpdate();
+            }
+            onPhase1() {}
+            onDefeat() {
+                console.log("[DEBUG] Boss defeated:", this.id);
+                this.active = false; triggerExplosion(this.x, this.y, this.color); triggerScreenShake(20); stats.bosses++;
+                unlockAchievement("BOSS DEFEATED", `${this.name} data decrypted.`, "Ω");
+                queuePopup(`${this.name} NEUTRALIZED`, "Anomaly collapsing. Reality stabilizing.", POPUP_PRIORITY.BOSS, 2600);
+                document.getElementById('boss-ui').classList.remove('visible');
+		
+		localStorage.setItem('stochastic_boss_' + this.id, 'true');
+		setTimeout(() => { activeBoss = null; enemyProjectiles.length = 0; applyTransformation('standard'); }, 3000);
+
+                // Stage 1 (after the explosion has had a beat to play out): the boss's environmental
+                // signature begins releasing its grip on the world, and the equation starts to dissolve —
+                // the player's standard equation will gradually resolve back into view as it clears.
+                setTimeout(() => {
+                    document.body.classList.remove('boss-active');
+                    envRules.bgColor = envRules.theme.bg;
+                    processType = 'standard';
+                    fadeEquationTransition(() => updateEquationHUD());
+                }, 1300);
+
+                // Stage 2: encounter fully concluded — clear remaining hazards and re-validate UI state.
+                setTimeout(() => {
+                    activeBoss = null; enemyProjectiles.length = 0;
+                    validatePowerupTimers();
+                }, 2600);
+            }
+            takeDamage(amt) { if(this.state === 'PHASE1') { this.hp -= amt; triggerExplosion(this.x, this.y, '#fff', 5); } }
+            customUpdate() {} draw(ctx) {}
+        }
+
+        class BrownianBeast extends Boss {
+            constructor() { super({ id: 'brownian', name: 'BROWNIAN BEAST', color: '#00f3ff' }); this.nodes = []; }
+            onPhase1() { queuePopup("BROWNIAN BEAST", "Probability storms inbound.", POPUP_PRIORITY.BOSS, 2600); }
+            customUpdate() {
+                this.y = player.y + Math.sin(this.timer*0.02) * 150; 
+                if(this.nodes.length < 50) this.nodes.push({x: 0, y: 0});
+                for(let n of this.nodes) { n.x += randomNormal() * 5 * timeScale; n.y += randomNormal() * 5 * timeScale; n.x -= n.x * 0.05 * timeScale; n.y -= n.y * 0.05 * timeScale; }
+                if(this.state === 'PHASE1' && Math.floor(this.timer) % 60 === 0 && timeScale > 0.1) {
+                    pulseBossEquationTerm(); // chaotic stochastic burst — dWt is actively driving this attack
+                    for(let i=0; i<3; i++) enemyProjectiles.push({ x: this.x, y: this.y + (Math.random()-0.5)*100, vx: -10, vy: (Math.random()-0.5)*5, radius: 15, color: this.color, type: 'wave' });
+                }
+            }
+            draw(ctx) {
+                if(!this.active) return;
+                ctx.save(); ctx.translate(this.x, this.y); ctx.strokeStyle = this.color; ctx.lineWidth = 1; ctx.shadowBlur = 10; ctx.shadowColor = this.color;
+                ctx.beginPath(); for(let n of this.nodes) { ctx.moveTo(0,0); ctx.lineTo(n.x, n.y); } ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0,0, 30, 0, Math.PI*2); ctx.fill(); ctx.restore();
+            }
+        }
+
+        class VolatilityTitan extends Boss {
+            constructor() { super({ id: 'volatility', name: 'VOLATILITY TITAN', color: '#ff3366' }); }
+            onPhase1() { queuePopup("VOLATILITY TITAN", "Extreme structural variance.", POPUP_PRIORITY.BOSS, 2600); }
+            customUpdate() { 
+                if(this.state === 'PHASE1') { 
+                    sigma = 6.5; 
+                    if(Math.random() < 0.5 * timeScale) triggerScreenShake(Math.random() * 3 + 1); 
+                    if(Math.floor(this.timer) % 40 === 0 && timeScale > 0.1) {
+                        pulseBossEquationTerm(); // volatility surge — σ spikes to drive this attack
+                        let isTop = Math.random() > 0.5;
+                        enemyProjectiles.push({ x: player.x + 400 + Math.random()*200, y: isTop ? 0 : height, vx: -8, vy: isTop ? 10 : -10, radius: 20, color: this.color, type: 'crystal' });
+                    }
+                } 
+            }
+            onDefeat() { super.onDefeat(); sigma = baseSigma; } 
+            draw(ctx) {
+                if(!this.active) return;
+                ctx.save(); ctx.translate(this.x, height/2); let pulse = this.state === 'PHASE1' ? Math.random() * 50 : 0;
+                ctx.strokeStyle = this.color; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = this.color;
+                for(let j=0; j<3; j++) {
+                    ctx.beginPath(); let r = 100 + (j*30) + pulse;
+                    for(let i=0; i<8; i++) {
+                        let angle = (i/8) * Math.PI*2 + (this.timer*0.01*(j+1)); let radius = r + randomNormal() * 20;
+                        let px = Math.cos(angle)*radius, py = Math.sin(angle)*radius; if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+                    } ctx.closePath(); ctx.stroke();
+                } 
+                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0,0, 40, 0, Math.PI*2); ctx.fill(); ctx.restore();
+            }
+        }
+
+        class ItoArchitect extends Boss {
+            constructor() { super({ id: 'ito', name: 'ITÔ ARCHITECT', color: '#7fff8c' }); }
+            onPhase1() { queuePopup("ITÔ ARCHITECT", "Rules of calculus transforming.", POPUP_PRIORITY.BOSS, 2600); }
+            customUpdate() { 
+                this.y = height/2 + Math.sin(this.timer*0.01) * 200; 
+                if(this.state === 'PHASE1' && Math.floor(this.timer) % 50 === 0 && timeScale > 0.1) {
+                    pulseBossEquationTerm(); // transformation attack — the second-derivative term is doing the work
+                    enemyProjectiles.push({ x: this.x, y: this.y, vx: -12, vy: (player.y - this.y)*0.02, radius: 10, color: this.color, type: 'orb' });
+                }
+            }
+            draw(ctx) {
+                if(!this.active) return;
+                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = this.color; ctx.font = "24px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur = 15; ctx.shadowColor = this.color;
+                let symbols = ['∫', '∂', 'λ', 'Δ', 'dW', 'dt'];
+                for(let j=1; j<=3; j++) {
+                    let r = j * 60;
+                    for(let i=0; i<symbols.length; i++) { let angle = (i/symbols.length) * Math.PI*2 + (this.timer*0.02*(j%2===0?1:-1)); ctx.fillText(symbols[i], Math.cos(angle)*r, Math.sin(angle)*r); }
+                } ctx.font = "50px serif"; ctx.fillStyle = "#fff"; ctx.fillText("I", 0, 0); ctx.restore();
+            }
+        }
+
+        class BlackSwan extends Boss {
+            constructor() { super({ id: 'swan', name: 'BLACK SWAN', color: '#b000ff' }); this.attackCharge = 0; this.targetY = 0; }
+            onPhase1() { 
+	    	envRules.bgColor = '#1a0033'; 
+                triggerScreenShake(30);
+                setTimeout(()=> envRules.bgColor = '#0a0011', 300); 
+            }
+            customUpdate() { 
+                if(this.state === 'PHASE1') {
+                    if (Math.floor(this.timer) % 120 === 0 && this.attackCharge === 0) {
+                        this.attackCharge = 60; this.targetY = player.y;
+                    }
+                    if (this.attackCharge > 0) {
+                        this.attackCharge -= timeScale;
+                        if(Math.random() < 0.5) spawnParticle(this.x, this.targetY, '#ff00ff', (Math.random()-0.5)*5, (Math.random()-0.5)*5, 2, 10);
+                        if (this.attackCharge <= 0) {
+                            pulseBossEquationTerm(); // rare-event jump attack — JtdNt fires dramatically
+                            triggerScreenShake(25);
+                            enemyProjectiles.push({ x: this.x - 40, y: this.targetY, vx: -25, vy: 0, radius: 40, color: '#ff00ff', type: 'swan_blast', trail: [] });
+                            this.attackCharge = 0;
+                        }
+                    }
+                } 
+            }
+            draw(ctx) {
+                if(!this.active) return;
+                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = '#000'; ctx.strokeStyle = this.color; ctx.lineWidth = 4; ctx.shadowBlur = 30; ctx.shadowColor = this.color;
+                let glitch = (Math.random()-0.5)*40; ctx.beginPath(); ctx.moveTo(80, 0); ctx.lineTo(-80, -120 + glitch); ctx.lineTo(-40, 0); ctx.lineTo(-80, 120 - glitch); ctx.closePath(); ctx.fill(); ctx.stroke(); 
+                ctx.restore();
+                
+                if (this.attackCharge > 0) {
+                    ctx.beginPath(); ctx.moveTo(this.x - 50, this.targetY); ctx.lineTo(0, this.targetY);
+                    ctx.strokeStyle = `rgba(255, 0, 255, ${0.5 * (1 - this.attackCharge/60)})`; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.beginPath(); ctx.arc(this.x - 40, this.targetY, 50 - this.attackCharge*0.5, 0, Math.PI*2);
+                    ctx.fillStyle = `rgba(176, 0, 255, ${1 - this.attackCharge/60})`; ctx.fill();
+                }
+            }
+        }
+
+        // --- GAME LOOP LOGIC ---
+	let hasStarted = false, survivalFrames = 0;
+        function updatePhysics() {
+	    if (!hasStarted && isSpaceDown && !isIntro) hasStarted = true;
+		
+            if (isIntro) return;
+
+            let targetMu = isSpaceDown ? -10 : 10;
+            mu += (targetMu - mu) * 0.05 * timeScale;
+            
+            if(Math.abs(mu) > stats.maxDrift) stats.maxDrift = Math.abs(mu);
+            stats.volSum += sigma * timeScale; stats.volTicks += timeScale;
+
+            let isStandardMath = ['standard', 'magnet', 'brownian', 'volatility', 'ito', 'swan'].includes(processType);
+
+            let smoothDy = 0;
+            let processDamageMult = 1.0;
+            if (isStandardMath) { smoothDy = mu; } 
+            else if (processType === 'log') { smoothDy = (mu - (0.5 * sigma * sigma)) * 0.7; } 
+            else if (processType === 'squared') { smoothDy = (mu * 1.2 + sigma * sigma * 0.2); processDamageMult = 3.0; }
+            else if (processType === 'exponential') { smoothDy = mu * 1.5; scoreMultiplier += 0.005 * timeScale; processDamageMult = 2.0; }
+            else if (processType === 'mean_reversion') { smoothDy = mu * 0.5 - (player.y - height/2)*0.01; }
+            else if (processType === 'vol_compression') { smoothDy = mu; }
+            else if (processType === 'drift_amp') { smoothDy = mu * 1.8; }
+
+            // Apply inertia: player.vy tracks smooth drift exclusively
+            player.vy += (smoothDy - player.vy) * 0.15 * timeScale;
+            
+            let targetSize = processType === 'squared' ? 60 : 20;
+            player.size += (targetSize - player.size) * 0.1 * timeScale;
+
+            dW = randomNormal();
+            activeShock = 0;
+            if (isStandardMath) { activeShock = sigma * dW; } 
+            else if (processType === 'log') { activeShock = sigma * 1.5 * dW; } 
+            else if (processType === 'squared') { activeShock = sigma * 0.8 * dW; }
+            else if (processType === 'exponential') { activeShock = sigma * dW; }
+            else if (processType === 'mean_reversion') { activeShock = sigma * 0.4 * dW; }
+            else if (processType === 'vol_compression') { activeShock = sigma * 0.2 * dW; }
+            else if (processType === 'drift_amp') { activeShock = sigma * dW; }
+
+            player.y += player.vy * timeScale;
+            player.visualPulse += 0.1 * timeScale; 
+
+            if (player.y < 50) { player.y = 50; player.vy = 0; if(timeScale>0 && !isDead && !isRecovering) triggerScreenShake(2); }
+            if (player.y > height - 50) { player.y = height - 50; player.vy = 0; if(timeScale>0 && !isDead && !isRecovering) triggerScreenShake(2); }
+
+            if (timeScale > 0 && !isDead && !isRecovering) {
+                // TRAIL: Decoupled Stochastic Visual
+                player.visualStoch += activeShock * 2 * timeScale;
+                player.visualStoch *= 0.85; // Damping
+
+                player.trail.push({x: player.x, y: player.y + player.visualStoch, activeScale: isSpaceDown ? 1.5 : 1});
+                if(player.trail.length > 150) player.trail.shift();
+                for(let p of player.trail) p.x -= scrollSpeed * timeScale;
+                if (Math.random() < 0.2 * timeScale) spawnParticle(player.x, player.y, envRules.theme.p, -scrollSpeed, (Math.random()-0.5)*2, 2, 20);
+            }
+
+            // AUTO FIRING SYSTEM (Only during active boss combat)
+            if (timeScale > 0 && !isDead && !isRecovering && activeBoss && activeBoss.state === 'PHASE1') {
+                // Baseline fire rate is fixed — it must never drift with distance/session length.
+                // Only an active power-up (e.g. 'drift') is allowed to change it temporarily.
+                const BASE_FIRE_RATE = 60;
+                let fireRate = activePowerup === 'drift' ? BASE_FIRE_RATE * 0.4 : BASE_FIRE_RATE;
+                autoFireTimer -= timeScale;
+                if (autoFireTimer <= 0) { autoFireTimer = fireRate; fireProjectiles(processDamageMult); }
+            }
+
+	}
+
+        function fireProjectiles(dmgMult) {
+            let px = player.x + player.size; let py = player.y;
+            let dmg = 15 * dmgMult;
+            if (!activePowerup) { playerProjectiles.push({ x: px, y: py, vx: 15, vy: 0, radius: 5, color: envRules.theme.p, type: 'normal', dmg: dmg }); } 
+            else if (activePowerup === 'drift') { playerProjectiles.push({ x: px, y: py, vx: 25, vy: 0, radius: 8, color: '#00ffaa', type: 'fast', dmg: dmg }); } 
+            else if (activePowerup === 'knowledge') {
+                playerProjectiles.push({ x: px, y: py, vx: 15, vy: -5, radius: 5, color: envRules.theme.p, type: 'normal', dmg: dmg });
+                playerProjectiles.push({ x: px, y: py, vx: 15, vy: 0, radius: 5, color: envRules.theme.p, type: 'normal', dmg: dmg });
+                playerProjectiles.push({ x: px, y: py, vx: 15, vy: 5, radius: 5, color: envRules.theme.p, type: 'normal', dmg: dmg });
+            } else if (activePowerup === 'volatility') {
+                playerProjectiles.push({ x: px, y: py, vx: 12, vy: 0, radius: 6, color: '#ff00c1', type: 'homing', dmg: dmg });
+            } else if (activePowerup === 'eigen') {
+                playerProjectiles.push({ x: px, y: py, vx: 20, vy: 0, radius: 10, color: 'var(--accent-gold)', type: 'piercing', dmg: dmg*1.5 });
+            }
+        }
+
+        function handleCollisions() {
+            let playerHit = false;
+            let dangerClose = false;
+
+            // ENEMY PROJECTILES
+            for(let i=enemyProjectiles.length-1; i>=0; i--) {
+                let ep = enemyProjectiles[i];
+                if (ep.type === 'wave') ep.vy = Math.sin(activeFrameCount*0.1) * 10;
+                
+                if (ep.type === 'swan_blast') {
+                    if(!ep.trail) ep.trail = [];
+                    ep.trail.push({x: ep.x, y: ep.y});
+                    if(ep.trail.length > 15) ep.trail.shift();
+                    if(Math.random() < 0.4 * timeScale) spawnParticle(ep.x, ep.y, '#ff00ff', Math.random()*10, (Math.random()-0.5)*10, 3, 20);
+                }
+
+                ep.x += ep.vx * timeScale; ep.y += ep.vy * timeScale;
+                let dx = player.x - ep.x, dy = player.y - ep.y;
+                
+                if (Math.sqrt(dx*dx + dy*dy) < ep.radius + player.size) { 
+                    if (processType === 'squared') {
+                        // QUADRATIC EXPANSION: Destroy projectile, gain score
+                        triggerExplosion(ep.x, ep.y, '#ffd700', 15);
+                        score += 300 * scoreMultiplier;
+                        spawnFloatingText(ep.x, ep.y, `+${300 * Math.floor(scoreMultiplier)}`, '#ffd700');
+                        enemyProjectiles.splice(i, 1);
+                        continue;
+                    } else {
+                        playerHit = true; 
+                        enemyProjectiles.splice(i, 1); 
+                        break; 
+                    }
+                }
+                if (ep.x < -100) enemyProjectiles.splice(i, 1);
+            }
+
+            // OBSTACLES
+            for (let i=obstacles.length-1; i>=0; i--) {
+                let s = obstacles[i]; s.x -= scrollSpeed * timeScale;
+                let hit = false, distToPlayer = 999;
+                
+                if (s.type === 'spike') {
+                    for(let v of s.vertices) v.x -= scrollSpeed * timeScale;
+                    let hitX = player.x + player.size > s.x - s.w/2 && player.x - player.size < s.x + s.w/2;
+                    let hitY = s.isTop ? (player.y - player.size < s.h) : (player.y + player.size > height - s.h);
+                    if (hitX && hitY) hit = true;
+                    distToPlayer = Math.abs(s.x - player.x);
+                    if (distToPlayer < 100 && !hit && !s.nearMissed && player.x > s.x) { s.nearMissed = true; triggerNearMiss(); }
+                } 
+                else if (s.type === 'cloud') {
+                    s.rotation += 0.05 * timeScale;
+                    let dx = player.x - s.x, dy = player.y - s.y; distToPlayer = Math.sqrt(dx*dx + dy*dy);
+                    if (distToPlayer < s.radius + player.size - 10) hit = true;
+                    if (distToPlayer < s.radius + player.size + 40 && !hit && !s.nearMissed && player.x > s.x) { s.nearMissed = true; triggerNearMiss(); }
+                }
+                else if (s.type === 'barrier') {
+                    s.h += Math.sin(activeFrameCount*0.1)*5 * timeScale; let hw = s.w/2, hh = s.h/2;
+                    if (player.x + player.size > s.x - hw && player.x - player.size < s.x + hw && player.y + player.size > s.y - hh && player.y - player.size < s.y + hh) hit = true;
+                    distToPlayer = Math.abs(s.x - player.x);
+                    if (distToPlayer < 80 && !hit && !s.nearMissed && player.x > s.x) { s.nearMissed = true; triggerNearMiss(); }
+                }
+
+                if (distToPlayer > 0 && distToPlayer < 300) dangerClose = true;
+                
+                if (hit && !playerHit) {
+                    if (processType === 'squared') {
+                        // QUADRATIC EXPANSION: Destroy obstacle, generate golden bursts
+                        triggerExplosion(s.x, s.y, '#ffffff', 20);
+                        triggerExplosion(s.x, s.y, '#ffd700', 30);
+                        score += 1000 * scoreMultiplier; 
+                        spawnFloatingText(s.x, s.y, `+${1000 * Math.floor(scoreMultiplier)}`, '#ffd700');
+                        s.passed = true;
+                        obstacles.splice(i, 1); 
+                        continue;
+                    } else {
+                        playerHit = true; 
+                        s.passed = true;
+                        obstacles.splice(i, 1); 
+                        break;
+                    }
+                }
+                if (!s.passed && player.x > s.x + 100) { s.passed = true; score += 500 * scoreMultiplier; spawnFloatingText(player.x, player.y - 40, `+${500 * Math.floor(scoreMultiplier)}`, '#fff'); }
+                if (s.x < -300 && obstacles[i]) obstacles.splice(i, 1);
+            }
+
+            if(timeScale > 0 && !isDead && !isRecovering) dmgOverlay.style.boxShadow = dangerClose ? `inset 0 0 ${100 + Math.sin(activeFrameCount*0.2)*50}px var(--accent-red)` : "inset 0 0 0px var(--accent-red)";
+
+            if (playerHit && timeScale > 0 && !isDead && !isRecovering) {
+                if (player.hasShield) {
+                    console.log("[DEBUG] Shield consumed.");
+                    player.hasShield = false; triggerExplosion(player.x, player.y, '#00f3ff', 40); triggerScreenShake(20);
+                    queuePopup("BUFFER SHATTERED", "Extreme realization absorbed.", POPUP_PRIORITY.EVENT, 2200);
+                
+                    for(let j=enemyProjectiles.length-1; j>=0; j--) {
+                        let ddx = player.x - enemyProjectiles[j].x, ddy = player.y - enemyProjectiles[j].y;
+                        if(Math.sqrt(ddx*ddx + ddy*ddy) < 200) enemyProjectiles.splice(j, 1);
+                    }
+                } else if (player.hasRevive) {
+                    console.log("[DEBUG] Martingale consumed.");
+                    player.hasRevive = false; reviveInd.classList.remove('active');
+                    triggerMartingaleRecovery();
+                } else { triggerDeathSequence(); }
+            }
+        }
+         
+        function updateEnvironment() {
+            if (isIntro) return; // Prevent spawning during intro
+
+            updateAmbientVisuals();
+            checkSkinUnlocks();
+            Director.update(distance);
+            if(activeBoss) activeBoss.update();
+            if (activeBoss && activeBoss.state === 'PHASE1' && timeScale > 0.1) {
+                if (!window.bossPowerupTimer) window.bossPowerupTimer = 0;
+                window.bossPowerupTimer += timeScale;
+                if (window.bossPowerupTimer > 350) { // Spawns approximately every ~6 seconds
+                    spawnPowerup(true);
+                    window.bossPowerupTimer = 0;
+                }
+            }
+
+            let inVolZone = false;
+            for(let i=volZones.length-1; i>=0; i--) {
+                let vz = volZones[i]; vz.x -= scrollSpeed * timeScale;
+                if (player.x > vz.x - vz.w/2 && player.x < vz.x + vz.w/2) inVolZone = true;
+                if (vz.x < -vz.w) volZones.splice(i, 1);
+            }
+            if (inVolZone && !Director.stormActive && !activeBoss) sigma = baseSigma * 2.0;
+            else if (!Director.stormActive && (!activeBoss || activeBoss.id !== 'volatility')) sigma = baseSigma;
+
+            // Score Orbs
+            for(let i=scoreOrbs.length-1; i>=0; i--) {
+                let orb = scoreOrbs[i];
+                if (processType === 'magnet') {
+                    let dx = player.x - orb.x, dy = player.y - orb.y; let d = Math.sqrt(dx*dx + dy*dy);
+                    if (d < 400) { orb.x += (dx/d) * 20 * timeScale; orb.y += (dy/d) * 20 * timeScale; } else { orb.x -= scrollSpeed * timeScale; }
+                } else { orb.x -= scrollSpeed * timeScale; }
+
+                let dx = player.x - orb.x, dy = player.y - orb.y;
+                if(orb.active && Math.sqrt(dx*dx + dy*dy) < orb.radius + player.size) {
+                    orb.active = false; score += 200 * scoreMultiplier;
+                    spawnFloatingText(orb.x, orb.y, `+${200 * Math.floor(scoreMultiplier)}`, '#ffd700');
+                    scoreOrbs.splice(i, 1); continue;
+                }
+                if (orb.x < -100) scoreOrbs.splice(i, 1);
+            }
+
+            for(let i=knowledgeNodes.length-1; i>=0; i--) {
+                let kn = knowledgeNodes[i]; 
+                if (processType === 'magnet') {
+                    let dx = player.x - kn.x, dy = player.y - kn.y; let d = Math.sqrt(dx*dx + dy*dy);
+                    if (d < 400) { kn.x += (dx/d) * 20 * timeScale; kn.y += (dy/d) * 20 * timeScale; } else { kn.x -= scrollSpeed * timeScale; }
+                } else { kn.x -= scrollSpeed * timeScale; }
+
+                let dx = player.x - kn.x, dy = player.y - kn.y;
+                if(kn.active && Math.sqrt(dx*dx + dy*dy) < kn.radius + player.size) {
+                    kn.active = false; score += 1000 * scoreMultiplier; stats.nodes++;
+                    triggerExplosion(kn.x, kn.y, envRules.theme.p); spawnFloatingText(kn.x, kn.y, `+${1000 * Math.floor(scoreMultiplier)}`, envRules.theme.p);
+                    unlockAchievement("NODE DECRYPTED", "Data point secured.", "∫");
+                }
+                if (kn.x < -100) knowledgeNodes.splice(i, 1);
+            }
+
+            for(let i=portals.length-1; i>=0; i--) {
+                let p = portals[i]; p.x -= scrollSpeed * timeScale;
+                let dx = player.x - p.x, dy = player.y - p.y;
+                if(p.active && Math.sqrt(dx*dx + dy*dy) < p.radius + player.size) {
+                    p.active = false; applyTransformation(p.type);
+                    for(let j=0; j<20; j++) spawnParticle(p.x, p.y, 'var(--accent-gold)', (Math.random()-0.5)*15, (Math.random()-0.5)*15, 3, 40);
+                }
+                if (p.x < -100) portals.splice(i, 1);
+            }
+
+            if (powerupTimer > 0) {
+                powerupTimer -= timeScale;
+                if (powerupTimer <= 0) { activePowerup = null; powerupDisplay.style.opacity = 0; }
+            }
+
+            // Process Transformation Timer
+            if (!['standard', 'brownian', 'volatility', 'ito', 'swan'].includes(processType)) {
+                transformTimer -= timeScale;
+		let tPercent = (transformTimer / transformMax * 100).toFixed(1) + '%';
+                		if (window.lastTPercent !== tPercent) {
+                    		transformBar.style.width = tPercent;
+                   	 		window.lastTPercent = tPercent;
+                		}
+
+                if (transformTimer <= 0) {
+                    applyTransformation('standard');
+                    transformContainer.style.opacity = 0;
+                }
+            }
+
+            for(let i=powerupItems.length-1; i>=0; i--) {
+                let p = powerupItems[i]; 
+                if (processType === 'magnet') {
+                    let dx = player.x - p.x, dy = player.y - p.y; let d = Math.sqrt(dx*dx + dy*dy);
+                    if (d < 400) { p.x += (dx/d) * 20 * timeScale; p.y += (dy/d) * 20 * timeScale; } else { p.x -= scrollSpeed * timeScale; }
+                } else { p.x -= scrollSpeed * timeScale; }
+
+                let dx = player.x - p.x, dy = player.y - p.y;
+                if(Math.sqrt(dx*dx + dy*dy) < p.radius + player.size) {
+                    console.log("[DEBUG] Powerup collected:", p.type);
+                    if (p.type === 'shield') {
+                        player.hasShield = true;
+                        triggerExplosion(p.x, p.y, '#00f3ff'); spawnFloatingText(p.x, p.y - 30, "VOLATILITY BUFFER", '#00f3ff');
+                        queuePopup("VOLATILITY BUFFER", "Volatility measures uncertainty, not direction.", POPUP_PRIORITY.PICKUP, 2000);
+                    } else if (p.type === 'revive') {
+                        player.hasRevive = true; reviveInd.classList.add('active');
+                        triggerExplosion(p.x, p.y, '#ffd700'); spawnFloatingText(p.x, p.y - 30, "MARTINGALE RECOVERY", '#ffd700');
+                        queuePopup("MARTINGALE RECOVERY", "The expected future value equals the current value.", POPUP_PRIORITY.PICKUP, 2000);
+                    } else if (p.type === 'squared') {
+                        applyTransformation('squared');
+                        triggerExplosion(p.x, p.y, '#ffffff', 30);
+                        triggerExplosion(p.x, p.y, '#ffd700', 30);
+                        spawnFloatingText(p.x, p.y - 40, "QUADRATIC EXPANSION MODE", '#ffd700');
+                    } else {
+                        activePowerup = p.type; powerupTimer = 600;
+                        let pName = "WEAPON UPGRADE";
+                        if(p.type==='drift') pName="MOMENTUM CORE";
+                        if(p.type==='knowledge') pName="RATE OF FIRE (λ)";
+                        if(p.type==='volatility') pName="MULTI-SHOT (POISSON)";
+                        if(p.type==='eigen') pName="DAMAGE AMP (σ²)";
+                        
+                        powerupDisplay.style.opacity = 1; powerupDisplay.innerHTML = `ACTIVE CORE<span>${pName}</span>`;
+                        triggerExplosion(p.x, p.y, '#fff'); spawnFloatingText(p.x, p.y - 30, pName, '#fff');
+                    }
+                    powerupItems.splice(i, 1); continue;
+                }
+                if (p.x < -100) powerupItems.splice(i, 1);
+            }
+
+            for(let i=playerProjectiles.length-1; i>=0; i--) {
+                let p = playerProjectiles[i];
+                if (p.type === 'homing' && activeBoss && activeBoss.state === 'PHASE1') { p.vy += (activeBoss.y - p.y) * 0.05; }
+                p.x += p.vx * timeScale; p.y += p.vy * timeScale;
+                if (activeBoss && activeBoss.state === 'PHASE1') {
+                    let hitDist = activeBoss.id === 'swan' ? 80 : 50; 
+                    let dx = p.x - activeBoss.x, dy = p.y - activeBoss.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < hitDist) { activeBoss.takeDamage(p.dmg); if(p.type !== 'piercing') { playerProjectiles.splice(i, 1); continue; } }
+                }
+                if (p.x > width + 50) playerProjectiles.splice(i, 1);
+            }
+
+            for(let i=particles.length-1; i>=0; i--) {
+                let p = particles[i]; 
+                p.x += p.speedX * timeScale; 
+                p.y += p.speedY * timeScale; 
+                p.life -= timeScale;
+                if(p.life <= 0) particles.splice(i, 1);
+            }
+
+            handleCollisions();
+        } 
+
+        function updateHUD() {
+            let totalMultiplier = scoreMultiplier * (processType === 'log' ? 3.0 : (processType === 'squared' ? 2.0 : 1.0));
+
+	    let scoreStr = Math.floor(score).toLocaleString();
+            let scoreEl = document.getElementById('ui-total-score');
+            if (scoreEl) scoreEl.innerText = scoreStr;
+
+            let actualTimeSeconds = survivalFrames / 60;
+            let timeStr = actualTimeSeconds.toFixed(2) + "s";
+            
+            if (window.lastScoreStr !== timeStr) { 
+                uiScore.innerText = timeStr; 
+                window.lastScoreStr = timeStr; 
+            }
+            
+            if (score - lastMilestone >= 5000) {
+                lastMilestone = score; uiScore.classList.add('milestone');
+                spawnUIParticles(uiScore.getBoundingClientRect(), 10, 'var(--accent-gold)');
+                setTimeout(() => uiScore.classList.remove('milestone'), 300);
+            }
+	   
+            let distStr = distance + "m";
+            if (window.lastDistStr !== distStr) { uiDist.innerText = distStr; window.lastDistStr = distStr; }
+
+            let muPercent = Math.min(Math.max((mu + 10) / 20 * 100, 0), 100).toFixed(1) + "%";
+            if (window.lastMuPercent !== muPercent) { fillDrift.style.width = muPercent; window.lastMuPercent = muPercent; }
+            
+            let txtDriftStr = (-mu).toFixed(2);
+            if (window.lastTxtDrift !== txtDriftStr) { txtDrift.innerText = txtDriftStr; window.lastTxtDrift = txtDriftStr; }
+
+            let volPercent = ((sigma / 10) * 100).toFixed(1) + "%";
+            if (window.lastVolPercent !== volPercent) { fillVol.style.width = volPercent; window.lastVolPercent = volPercent; }
+            
+            let txtVolStr = sigma.toFixed(2);
+            if (window.lastTxtVol !== txtVolStr) { txtVol.innerText = txtVolStr; window.lastTxtVol = txtVolStr; }
+
+            updateEquationHighlights();
+            
+	    if(window.uiMu && window.uiSigma && window.uiDw && !isDead && !isIntro) {
+                // Optimized DOM Updates: Removed 60FPS CSS text-shadow repaints. 
+                // Only transforming scale and opacity for 100% smooth hardware acceleration.
+                
+                let muIntensity = Math.min(Math.abs(mu) / 10, 1);
+                if (processType !== 'magnet') { window.uiMu.style.color = `rgba(127, 255, 140, ${0.4 + muIntensity * 0.6})`; }
+                window.uiMu.style.transform = `scale(${1 + muIntensity * 0.35})`;
+
+                let sigIntensity = Math.min((sigma - baseSigma) / 5, 1);
+                if (!player.hasShield) {
+                    window.uiSigma.style.color = `rgba(0, 243, 255, ${0.5 + sigIntensity * 0.5})`;
+                    if (sigIntensity > 0) {
+                        if (Math.random() < sigIntensity * 0.6) {
+                            window.uiSigma.style.transform = `translate(${(Math.random()-0.5)*4*sigIntensity}px, ${(Math.random()-0.5)*4*sigIntensity}px) skewX(${(Math.random()-0.5)*10*sigIntensity}deg)`;
+                        } else { window.uiSigma.style.transform = `scale(${1 + sigIntensity * 0.2})`; }
+                    } else { window.uiSigma.style.transform = 'scale(1)'; }
+                }
+
+                let shockIntensity = Math.min(Math.abs(dW) / 2.5, 1); 
+                if (shockIntensity > 0.4 && timeScale > 0) {
+                    window.uiDw.style.opacity = 0.5 + shockIntensity * 0.5;
+                    window.uiDw.style.color = '#fff';
+                    window.uiDw.style.transform = `translate(${(Math.random()-0.5)*shockIntensity*5}px, ${(Math.random()-0.5)*shockIntensity*5}px)`;
+                } else {
+                    window.uiDw.style.opacity = 0.4 + shockIntensity * 0.2;
+                    window.uiDw.style.color = 'inherit'; window.uiDw.style.transform = 'scale(1)';
+                }
+
+                let stIntensity = Math.min(Math.abs(player.vy) / 12, 1);
+                if (window.uiSts && !player.hasRevive && processType !== 'squared') {
+                    window.uiSts.forEach(el => {
+                        if (stIntensity > 0.2) {
+                            el.style.color = `rgba(255, 255, 255, ${0.5 + stIntensity * 0.5})`;
+                            el.style.transform = `scale(${1 + stIntensity * 0.15})`;
+                        } else { el.style.color = 'inherit'; el.style.transform = 'scale(1)'; }
+                    });
+                }
+            }	
+	}    
+        
+        function draw() {
+            ctx.fillStyle = `rgb(${bgDisplayRGB.r | 0}, ${bgDisplayRGB.g | 0}, ${bgDisplayRGB.b | 0})`;
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.save();
+            if (screenShake > 0) { ctx.translate((Math.random()-0.5)*screenShake, (Math.random()-0.5)*screenShake); screenShake *= 0.9; if(screenShake < 0.5) screenShake = 0; }
+
+            ctx.globalCompositeOperation = 'lighter';
+
+            // Horizon Gradient
+            let horizonGrad = ctx.createLinearGradient(0, height/2 - 200, 0, height/2 + 200);
+            horizonGrad.addColorStop(0, 'rgba(0,0,0,0)');
+            horizonGrad.addColorStop(0.5, `rgba(255,255,255,0.03)`);
+            horizonGrad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = horizonGrad; ctx.fillRect(0, 0, width, height);
+
+            // Atmosphere Fog
+            ctx.fillStyle = `rgba(15, 18, 40, 0.25)`; ctx.fillRect(0, 0, width, height);
+
+            // CONTINUOUS STOCHASTIC WAVE FIELD — layered probability currents whose phase advances via
+            // a mean-reverting velocity and whose amplitude eases toward its target (see updateAmbientVisuals),
+            // so nothing here ever snaps regardless of boss fights, storms, or transformations.
+            for (let layer = 0; layer < 3; layer++) {
+                ctx.beginPath();
+                let freq = 0.005 * (1 + layer * 0.35);
+                for (let x = 0; x <= width; x += 26) {
+                    let yWave = height/2
+                        + Math.sin(x*freq + waveField.phase[layer]) * waveField.amp[layer]
+                        + Math.sin(x*freq*2.7 - waveField.phase[layer]*1.4) * waveField.amp[layer] * 0.22;
+                    if (x === 0) ctx.moveTo(x, yWave); else ctx.lineTo(x, yWave);
+                }
+                let alpha = Math.max(0, (0.022 + sigma*0.005) * (1 - layer*0.3));
+                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.lineWidth = 20 - layer*5;
+                ctx.stroke();
+            }
+
+            // Magnet Field visual
+            if (processType === 'magnet') {
+                ctx.beginPath(); ctx.arc(player.x, player.y, 400, 0, Math.PI*2);
+                let grad = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, 400);
+                grad.addColorStop(0, 'rgba(127, 255, 140, 0.1)'); grad.addColorStop(1, 'rgba(127, 255, 140, 0)');
+                ctx.fillStyle = grad; ctx.fill();
+            }
+
+            for(let vz of volZones) {
+                ctx.fillStyle = 'rgba(255, 51, 102, 0.05)'; ctx.fillRect(vz.x - vz.w/2, 0, vz.w, height);
+                ctx.strokeStyle = 'rgba(255, 51, 102, 0.2)'; ctx.beginPath();
+                ctx.moveTo(vz.x - vz.w/2, 0); ctx.lineTo(vz.x - vz.w/2, height); ctx.moveTo(vz.x + vz.w/2, 0); ctx.lineTo(vz.x + vz.w/2, height); ctx.stroke();
+            }
+
+            ctx.strokeStyle = envRules.gridColor; ctx.lineWidth = 1; ctx.beginPath();
+            let gFrame = Math.floor(activeFrameCount);
+            for(let i=0; i<height; i+=40) {
+                let yOffset = i + (gFrame%40); ctx.moveTo(0, yOffset);
+                if(gridWarpAmount > 0.01) { for(let x=0; x<width; x+=50) ctx.lineTo(x, yOffset + Math.sin(x*0.01 + activeFrameCount*0.05)*20*gridWarpAmount); } else { ctx.lineTo(width, yOffset); }
+            }
+            for(let i=0; i<width; i+=40) {
+                let xOffset = i + (gFrame%40); ctx.moveTo(xOffset, 0);
+                if(gridWarpAmount > 0.01) { for(let y=0; y<height; y+=50) ctx.lineTo(xOffset + Math.sin(y*0.01 + activeFrameCount*0.05)*20*gridWarpAmount, y); } else { ctx.lineTo(xOffset, height); }
+            }
+            ctx.stroke();
+
+            if (processType === 'log') { ctx.fillStyle = 'rgba(255, 0, 0, 0.05)'; ctx.fillRect(0,0,width,height); }
+            if (processType === 'squared') { ctx.fillStyle = 'rgba(255, 215, 0, 0.05)'; ctx.fillRect(0,0,width,height); }
+
+            // --- GAMEPLAY OBJECTS: collectibles, hazards, boss, and debris all render in this tier,
+            // strictly BELOW the projectile/player tier below, so nothing can ever hide a bullet. ---
+            for(let orb of scoreOrbs) {
+                if(!orb.active) continue;
+                ctx.save(); ctx.translate(orb.x, orb.y);
+                ctx.fillStyle = `rgba(255, 215, 0, ${0.2 + Math.random()*0.2})`; ctx.beginPath(); ctx.arc(0, 0, orb.radius + 10 + Math.random()*5, 0, Math.PI*2); ctx.fill();
+                ctx.shadowBlur = 15; ctx.shadowColor = '#ffd700'; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, orb.radius, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.shadowBlur = 0;
+                for (let j=0; j<2; j++) { ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo((Math.random()-0.5)*15, (Math.random()-0.5)*15); ctx.lineTo((Math.random()-0.5)*20, (Math.random()-0.5)*20); ctx.stroke(); }
+                ctx.restore();
+            }
+
+            for(let kn of knowledgeNodes) {
+                if(!kn.active) continue;
+                ctx.beginPath(); ctx.arc(kn.x, kn.y, kn.radius, 0, Math.PI*2); ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fill();
+                ctx.strokeStyle = envRules.theme.p; ctx.lineWidth = 2; ctx.shadowBlur = 15; ctx.shadowColor = envRules.theme.p; ctx.stroke(); ctx.shadowBlur = 0;
+                ctx.beginPath(); ctx.arc(kn.x, kn.y, kn.radius * 0.4, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill();
+            }
+
+            for(let p of powerupItems) {
+                ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(activeFrameCount * 0.05);
+                let pColor = '#fff'; let pText1 = ''; let pText2 = '';
+                
+                if(p.type === 'shield') { pColor = '#00f3ff'; pText1 = 'σSₜdWₜ'; pText2 = 'BUFFER'; }
+                else if(p.type === 'revive') { pColor = '#ffd700'; pText1 = 'E[Xₜ]=Xₜ'; pText2 = 'MARTINGALE'; }
+                else if(p.type === 'drift') { pColor = '#00ffaa'; pText1 = 'μSₜ'; pText2 = 'MOMENTUM'; }
+                else if(p.type === 'knowledge') { pColor = '#7fff8c'; pText1 = 'λ'; pText2 = 'FIRE RATE'; }
+                else if(p.type === 'eigen') { pColor = '#ff8800'; pText1 = 'σ²'; pText2 = 'DAMAGE AMP'; }
+                else if(p.type === 'volatility') { pColor = '#ff00c1'; pText1 = 'N(t)'; pText2 = 'POISSON'; }
+                else if(p.type === 'squared') { pColor = '#ffd700'; pText1 = 'Sₜ→Sₜ²'; pText2 = 'EXPANSION'; }
+
+                let radius = p.radius;
+
+                ctx.strokeStyle = pColor; 
+                ctx.lineWidth = p.isBossDrop ? 4 : 3; 
+                ctx.shadowBlur = p.isBossDrop ? 30 : 20; 
+                ctx.shadowColor = pColor;
+                
+                if(p.type === 'shield' || p.type === 'revive') {
+                    ctx.beginPath(); ctx.arc(0, 0, radius*0.8, 0, Math.PI*2); ctx.stroke();
+                } else {
+                    ctx.strokeRect(-radius, -radius, radius*2, radius*2); 
+                    ctx.rotate(-activeFrameCount * 0.1); 
+                    ctx.strokeRect(-radius*0.7, -radius*0.7, radius*1.4, radius*1.4); 
+                }
+
+                if (p.isBossDrop && Math.random() < 0.3) {
+                    spawnParticle(p.x + (Math.random()-0.5)*radius*2, p.y + (Math.random()-0.5)*radius*2, pColor, 0, -2, Math.random()*3+1, 25);
+                }
+                
+                ctx.rotate(-activeFrameCount * 0.05);
+                ctx.fillStyle = pColor; ctx.font = "bold 14px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur=15;
+                ctx.fillText(pText1, 0, -radius*1.6); 
+                ctx.fillText(pText2, 0, radius*1.6); 
+                ctx.restore();
+            }
+
+            for(let p of portals) {
+                if(!p.active) continue;
+                ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(activeFrameCount * 0.02);
+                let pTheme = PORTAL_DEFS[p.type];
+                ctx.strokeStyle = pTheme ? pTheme.stroke : 'var(--accent-gold)'; 
+                ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = pTheme ? pTheme.shadow : 'var(--accent-gold)';
+                ctx.beginPath(); ctx.moveTo(0, -p.radius); for(let i=1; i<8; i++) ctx.lineTo(Math.cos(i*Math.PI*2/8 - Math.PI/2)*p.radius, Math.sin(i*Math.PI*2/8 - Math.PI/2)*p.radius); ctx.closePath(); ctx.stroke();
+                
+                ctx.rotate(-activeFrameCount * 0.05);
+                ctx.fillStyle = pTheme ? pTheme.shadow : '#fff'; ctx.globalAlpha = 0.3 + Math.sin(activeFrameCount * 0.1)*0.2;
+                ctx.beginPath(); ctx.arc(0, 0, p.radius * 0.5, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1.0;
+                
+                ctx.fillStyle = pTheme ? pTheme.stroke : '#fff'; ctx.font = "12px serif";
+                let syms = pTheme ? pTheme.syms : ['∫','σ','μ'];
+                for(let i=0; i<3; i++) { ctx.fillText(syms[i], Math.cos(i*Math.PI*2/3)*p.radius*0.7, Math.sin(i*Math.PI*2/3)*p.radius*0.7); }
+
+                ctx.rotate(activeFrameCount * 0.03);
+                ctx.fillStyle = '#fff'; ctx.font = "bold 16px monospace"; ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur=0;
+                ctx.fillText(pTheme ? pTheme.text : '?', 0, 0); ctx.restore();
+            }
+
+            for(let s of obstacles) {
+                if (s.type === 'spike') {
+                    ctx.beginPath(); ctx.moveTo(s.vertices[0].x, s.vertices[0].y); for(let i=1; i<s.vertices.length; i++) ctx.lineTo(s.vertices[i].x, s.vertices[i].y); ctx.closePath();
+                    ctx.fillStyle = inItoRealm ? 'rgba(176, 0, 255, 0.1)' : 'rgba(0, 243, 255, 0.1)'; ctx.fill();
+                    ctx.strokeStyle = envRules.theme.s; ctx.lineWidth = 2; ctx.shadowBlur = 15; ctx.shadowColor = envRules.theme.s; ctx.stroke(); ctx.shadowBlur = 0; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.stroke();
+                    if(Math.random() < 0.3) { ctx.beginPath(); ctx.moveTo(s.vertices[1].x, s.vertices[1].y); ctx.lineTo(s.vertices[1].x + (Math.random()-0.5)*40, s.vertices[1].y + (Math.random()-0.5)*40); ctx.strokeStyle = '#fff'; ctx.stroke(); }
+                } 
+                else if (s.type === 'cloud') {
+                    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.rotation);
+                    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#fff';
+                    for(let i=0; i<3; i++) { ctx.beginPath(); ctx.arc(0,0, s.radius - i*15, i, Math.PI + i); ctx.stroke(); } ctx.restore();
+                }
+                else if (s.type === 'barrier') {
+                    ctx.fillStyle = 'rgba(255, 51, 102, 0.2)'; ctx.fillRect(s.x - s.w/2, s.y - s.h/2, s.w, s.h);
+                    ctx.strokeStyle = '#ff3366'; ctx.lineWidth = 2; ctx.strokeRect(s.x - s.w/2, s.y - s.h/2, s.w, s.h);
+                    ctx.beginPath(); ctx.moveTo(s.x - s.w/2, s.y); ctx.lineTo(s.x + s.w/2, s.y); ctx.stroke();
+                }
+            }
+
+            for(let ep of enemyProjectiles) {
+                if (ep.type === 'swan_blast') {
+                    if(ep.trail) {
+                        ctx.beginPath(); if(ep.trail.length > 0) ctx.moveTo(ep.trail[0].x | 0, ep.trail[0].y | 0);
+                        for(let i=1; i<ep.trail.length; i++) ctx.lineTo(ep.trail[i].x | 0, ep.trail[i].y | 0);
+                        ctx.strokeStyle = 'rgba(255, 0, 255, 0.5)'; ctx.lineWidth = ep.radius; ctx.shadowBlur = 20; ctx.shadowColor = '#b000ff'; ctx.stroke(); ctx.shadowBlur = 0;
+                    }
+                    ctx.beginPath(); ctx.arc(ep.x | 0, ep.y | 0, ep.radius, 0, TWO_PI);
+                    ctx.fillStyle = '#000'; ctx.strokeStyle = '#ff00ff'; ctx.lineWidth = 5; ctx.shadowBlur = 30; ctx.shadowColor = '#b000ff'; ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+                    for(let i=0; i<3; i++) { ctx.fillStyle = '#00f3ff'; ctx.fillRect((ep.x + (Math.random()-0.5)*ep.radius) | 0, (ep.y + (Math.random()-0.5)*ep.radius) | 0, 10, 5); }
+                } else {
+                    ctx.beginPath(); ctx.arc(ep.x | 0, ep.y | 0, ep.radius, 0, TWO_PI);
+                    ctx.fillStyle = ep.type==='void' ? '#000' : 'rgba(255,255,255,0.8)'; 
+                    ctx.strokeStyle = ep.color; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = ep.color;
+                    ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+                }
+            }
+
+            if (activeBoss) activeBoss.draw(ctx);
+
+            for(let i=particles.length-1; i>=0; i--) {
+                let p = particles[i];
+                let px = p.x | 0; 
+                let py = p.y | 0;
+
+                if (p.type === 'wave') {
+                    ctx.strokeStyle = p.color; ctx.lineWidth = 15 * (p.life / p.maxLife);
+                    ctx.beginPath(); ctx.arc(px, py, (1 - (p.life / p.maxLife)) * width * 1.5, 0, TWO_PI); ctx.stroke();
+                } else if (p.text) {
+                    ctx.fillStyle = p.color; ctx.globalAlpha = p.life / p.maxLife;
+                    ctx.font = "30px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; 
+                    ctx.shadowBlur = 10; ctx.shadowColor = p.color;
+                    ctx.fillText(p.text, px, py); ctx.shadowBlur = 0;
+                } else {
+                    ctx.fillStyle = p.color; ctx.globalAlpha = p.life / p.maxLife;
+                    ctx.beginPath(); ctx.arc(px, py, p.size, 0, TWO_PI); ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            // --- PROJECTILES: always rendered above every gameplay object/hazard/effect above, using
+            // normal (non-additive) blending so bright/saturated backgrounds can never wash a bullet out. ---
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+            for(let p of playerProjectiles) {
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 2, 0, Math.PI*2);
+                ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2);
+                ctx.fillStyle = p.color; ctx.shadowBlur = 12; ctx.shadowColor = p.color; ctx.fill(); ctx.shadowBlur = 0;
+            }
+            ctx.restore();
+
+            // --- PLAYER: trail, shield, and ship render above the projectiles ---
+            ctx.globalCompositeOperation = 'lighter';
+
+            if (player.trail.length > 1 && !isIntro) {
+                ctx.beginPath(); ctx.moveTo(player.trail[0].x, player.trail[0].y);
+                for(let i=1; i<player.trail.length; i++) ctx.lineTo(player.trail[i].x, player.trail[i].y);
+                ctx.strokeStyle = isSpaceDown ? envRules.theme.p : (processType==='standard' ? 'rgba(255,255,255,0.4)' : 'var(--accent-gold)');
+                ctx.lineWidth = processType==='squared' ? 5 : 3;
+                ctx.globalAlpha = 0.8;
+                ctx.stroke(); 
+                ctx.globalAlpha = 1.0;
+            }
+
+            if(!isDead && !isIntro && !isRecovering) {
+                // Shield Render
+                if (player.hasShield) {
+                    ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 15 + Math.sin(activeFrameCount*0.1)*5, 0, Math.PI*2);
+                    ctx.strokeStyle = 'rgba(0, 243, 255, 0.8)'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#00f3ff'; ctx.stroke();
+                    ctx.fillStyle = 'rgba(0, 243, 255, 0.1)'; ctx.fill(); ctx.shadowBlur = 0;
+                    
+                    ctx.save();
+                    ctx.translate(player.x, player.y);
+                    ctx.rotate(activeFrameCount * 0.05);
+                    ctx.fillStyle = '#fff'; ctx.font = '12px serif'; ctx.textAlign = 'center'; ctx.textBaseline='middle'; ctx.shadowBlur = 0;
+                    let orbitR = player.size + 25;
+                    ctx.fillText('σSₜdWₜ', 0, -orbitR);
+                    ctx.fillText('Var(X)=σ²', 0, orbitR);
+                    ctx.restore();
+                }
+
+                let pScale = 1 + Math.sin(player.visualPulse)*0.1 + (isSpaceDown ? 0.2 : 0); let ps = player.size * pScale;
+                drawPlayerShip(ctx, ps);
+            }
+
+            ctx.restore();
+        }
+
+        // Renders the player's ship using whichever skin is currently equipped (see SKIN_DEFS above).
+        // Every shape uses the exact same (player.x, player.y, ps) footprint, so collision is never affected.
+        function drawPlayerShip(ctx, ps) {
+            const def = SKIN_DEFS[selectedSkin] || SKIN_DEFS['mu-navigator'];
+            const cx = player.x, cy = player.y;
+            ctx.shadowBlur = 20; ctx.shadowColor = isSpaceDown ? '#ffffff' : def.glow;
+
+            switch (def.shape) {
+                case 'pentagon-crystal': {
+                    // Matches .art-portal's sibling design used for σ Volatility Core: an outer + inner
+                    // irregular pentagon, both rotating together, with the σ glyph held static on top.
+                    const outer = [[0,-45],[30,-15],[18,40],[-18,40],[-30,-15]];
+                    const s = ps / 45;
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount * 0.02);
+                    ctx.beginPath();
+                    outer.forEach((p, i) => { let x = p[0]*s, y = p[1]*s; if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(0,243,255,0.15)'; ctx.fill();
+                    ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.beginPath();
+                    outer.forEach((p, i) => { let x = p[0]*s*0.56, y = p[1]*s*0.56; if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fill();
+                    ctx.strokeStyle = def.color; ctx.lineWidth = 1; ctx.stroke();
+                    ctx.restore();
+                    ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(ps*0.65)}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(def.glyph, cx, cy);
+                    break;
+                }
+                case 'wave-orb': {
+                    // Matches Wiener Entity's flowing S-curve + glowing core, traced as the same
+                    // quadratic path used in the Vault preview.
+                    const s = ps / 50;
+                    ctx.save(); ctx.translate(cx, cy);
+                    ctx.beginPath();
+                    ctx.moveTo(-50*s, 10*s);
+                    ctx.quadraticCurveTo(-30*s, -30*s, -10*s, 5*s);
+                    ctx.quadraticCurveTo(10*s, 40*s, 30*s, -10*s);
+                    ctx.quadraticCurveTo(50*s, -60*s, 50*s, 15*s);
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.shadowBlur = 10; ctx.shadowColor = def.glow; ctx.stroke(); ctx.shadowBlur = 0;
+                    ctx.beginPath(); ctx.arc(0, 0, ps*0.4, 0, TWO_PI);
+                    ctx.fillStyle = '#fff'; ctx.shadowBlur = 14; ctx.shadowColor = '#fff'; ctx.fill(); ctx.shadowBlur = 0;
+                    ctx.restore();
+                    break;
+                }
+                case 'martingale': {
+                    // Matches the Data & Survival martingale art: solid ring + dashed outer ring +
+                    // an orbiting equation label, with the E glyph held static in the center.
+                    ctx.beginPath(); ctx.arc(cx, cy, ps*0.85, 0, TWO_PI);
+                    ctx.fillStyle = 'rgba(255,215,0,0.12)'; ctx.fill();
+                    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 3; ctx.stroke();
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount * 0.02);
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath(); ctx.arc(0, 0, ps*1.05, 0, TWO_PI); ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1.5; ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.restore();
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount * 0.015);
+                    ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.max(8, Math.round(ps*0.32))}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('E[Xₜ]=Xₜ', 0, -ps*1.45);
+                    ctx.restore();
+                    ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(ps*0.9)}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('E', cx, cy);
+                    break;
+                }
+                case 'portal': {
+                    // Shared by all 8 Transformation skins — exactly mirrors .art-portal: a rotating
+                    // octagon ring, a pulsing glowing core, three orbiting symbols, and a static center label.
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount * 0.02);
+                    ctx.beginPath();
+                    for (let i=0; i<8; i++) { let ang=(i/8)*TWO_PI - Math.PI/8; let r=ps*1.15; if(i===0) ctx.moveTo(Math.cos(ang)*r, Math.sin(ang)*r); else ctx.lineTo(Math.cos(ang)*r, Math.sin(ang)*r); }
+                    ctx.closePath();
+                    ctx.strokeStyle = def.color; ctx.lineWidth = 2.5; ctx.shadowBlur = 14; ctx.shadowColor = def.color; ctx.stroke(); ctx.shadowBlur = 0;
+                    ctx.restore();
+
+                    ctx.beginPath(); ctx.arc(cx, cy, ps*0.55, 0, TWO_PI);
+                    ctx.fillStyle = def.glow; ctx.globalAlpha = 0.45 + Math.sin(activeFrameCount*0.08)*0.2; ctx.filter = 'blur(3px)'; ctx.fill();
+                    ctx.filter = 'none'; ctx.globalAlpha = 1;
+
+                    if (def.orbitSyms) {
+                        ctx.save(); ctx.translate(cx, cy); ctx.rotate(-activeFrameCount * 0.013);
+                        ctx.fillStyle = def.color; ctx.font = `${Math.max(7, Math.round(ps*0.34))}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText(def.orbitSyms[0], 0, -ps*1.55);
+                        ctx.fillText(def.orbitSyms[1], -ps*1.3, ps*0.85);
+                        ctx.fillText(def.orbitSyms[2], ps*1.3, ps*0.85);
+                        ctx.restore();
+                    }
+
+                    ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.max(9, Math.round(ps*0.38))}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(def.glyph, cx, cy);
+                    break;
+                }
+                case 'boss-radiant': {
+                    ctx.strokeStyle = def.color; ctx.lineWidth = 2;
+                    for (let a = 0; a < 8; a++) {
+                        let ang = (a/8) * TWO_PI;
+                        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(ang)*ps*1.3, cy + Math.sin(ang)*ps*1.3); ctx.stroke();
+                    }
+                    ctx.beginPath(); ctx.arc(cx, cy, ps*0.6, 0, TWO_PI); ctx.fillStyle = '#fff'; ctx.fill();
+                    break;
+                }
+                case 'boss-hex': {
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount*0.03);
+                    ctx.beginPath();
+                    for (let i=0; i<8; i++) { let ang=(i/8)*TWO_PI; let r=ps*1.1; if(i===0) ctx.moveTo(Math.cos(ang)*r, Math.sin(ang)*r); else ctx.lineTo(Math.cos(ang)*r, Math.sin(ang)*r); }
+                    ctx.closePath(); ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.restore();
+                    ctx.beginPath(); ctx.arc(cx, cy, ps*0.55, 0, TWO_PI); ctx.fillStyle = '#fff'; ctx.fill();
+                    break;
+                }
+                case 'boss-glyph': {
+                    ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, ps*1.2, 0, TWO_PI); ctx.stroke();
+                    ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(ps*1.4)}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('I', cx, cy);
+                    break;
+                }
+                case 'boss-kite': {
+                    ctx.beginPath();
+                    ctx.moveTo(cx + ps*1.1, cy); ctx.lineTo(cx - ps*1.1, cy - ps*1.0); ctx.lineTo(cx - ps*0.5, cy); ctx.lineTo(cx - ps*1.1, cy + ps*1.0); ctx.closePath();
+                    ctx.fillStyle = '#000'; ctx.strokeStyle = def.color; ctx.lineWidth = 3; ctx.fill(); ctx.stroke();
+                    break;
+                }
+                case 'mythic-jagged': {
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount*0.04);
+                    ctx.beginPath();
+                    for (let i=0; i<10; i++) { let ang=(i/10)*TWO_PI; let r=(i%2===0)?ps*1.3:ps*0.5; if(i===0) ctx.moveTo(Math.cos(ang)*r, Math.sin(ang)*r); else ctx.lineTo(Math.cos(ang)*r, Math.sin(ang)*r); }
+                    ctx.closePath(); ctx.fillStyle = 'rgba(255,51,102,0.2)'; ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
+                    ctx.restore();
+                    break;
+                }
+                case 'mythic-rings': {
+                    ctx.strokeStyle = def.color; ctx.lineWidth = 2;
+                    for (let i=0; i<3; i++) { ctx.beginPath(); ctx.arc(cx, cy, ps*(1.3 - i*0.35), 0, TWO_PI); ctx.globalAlpha = 0.8 - i*0.2; ctx.stroke(); }
+                    ctx.globalAlpha = 1;
+                    ctx.beginPath(); ctx.arc(cx, cy, ps*0.3, 0, TWO_PI); ctx.fillStyle = '#fff'; ctx.fill();
+                    break;
+                }
+                case 'mythic-burst': {
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount*0.06);
+                    ctx.beginPath();
+                    for (let i=0; i<14; i++) { let ang=(i/14)*TWO_PI; let r=(i%2===0)?ps*1.35:ps*0.4; if(i===0) ctx.moveTo(Math.cos(ang)*r, Math.sin(ang)*r); else ctx.lineTo(Math.cos(ang)*r, Math.sin(ang)*r); }
+                    ctx.closePath(); ctx.fillStyle = 'rgba(255,215,0,0.15)'; ctx.strokeStyle = def.color; ctx.lineWidth = 1.5; ctx.fill(); ctx.stroke();
+                    ctx.restore();
+                    break;
+                }
+                case 'mythic-ghost': {
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy - ps*1.1);
+                    ctx.bezierCurveTo(cx+ps*0.9, cy-ps*1.1, cx+ps*0.9, cy+ps*0.3, cx+ps*0.7, cy+ps*1.1);
+                    ctx.bezierCurveTo(cx+ps*0.35, cy+ps*0.8, cx+ps*0.2, cy+ps*1.2, cx, cy+ps*0.9);
+                    ctx.bezierCurveTo(cx-ps*0.2, cy+ps*1.2, cx-ps*0.35, cy+ps*0.8, cx-ps*0.7, cy+ps*1.1);
+                    ctx.bezierCurveTo(cx-ps*0.9, cy+ps*0.3, cx-ps*0.9, cy-ps*1.1, cx, cy-ps*1.1);
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.5; ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = def.glow;
+                    ctx.beginPath(); ctx.arc(cx-ps*0.3, cy-ps*0.2, ps*0.12, 0, TWO_PI); ctx.fill();
+                    ctx.beginPath(); ctx.arc(cx+ps*0.3, cy-ps*0.2, ps*0.12, 0, TWO_PI); ctx.fill();
+                    break;
+                }
+                case 'mythic-loop': {
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount*0.02);
+                    ctx.beginPath();
+                    ctx.moveTo(-ps*0.9, 0);
+                    ctx.bezierCurveTo(-ps*0.9, -ps*0.9, -ps*0.1, -ps*0.9, -ps*0.1, 0);
+                    ctx.bezierCurveTo(-ps*0.1, ps*0.7, -ps*0.9, ps*0.7, -ps*0.9, 0);
+                    ctx.moveTo(ps*0.9, 0);
+                    ctx.bezierCurveTo(ps*0.9, -ps*0.7, ps*0.1, -ps*0.7, ps*0.1, 0);
+                    ctx.bezierCurveTo(ps*0.1, ps*0.9, ps*0.9, ps*0.9, ps*0.9, 0);
+                    ctx.strokeStyle = def.color; ctx.lineWidth = 2.5; ctx.stroke();
+                    ctx.restore();
+                    ctx.beginPath(); ctx.arc(cx, cy, ps*0.25, 0, TWO_PI); ctx.fillStyle = '#fff'; ctx.fill();
+                    break;
+                }
+                default: { // 'triangle' — the original ship silhouette
+                    ctx.beginPath(); ctx.moveTo(cx, cy - ps); ctx.lineTo(cx + ps, cy + ps); ctx.lineTo(cx - ps, cy + ps);
+                    ctx.closePath(); ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
+                    ctx.fillStyle = '#ffffff'; ctx.font = '20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(def.glyph, cx, cy + 5);
+                }
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function loop() {
+            if (!isPlaying) return;
+
+            if (isRecovering) {
+                recoveryTimer--;
+                if(recoveryTimer % 5 === 0) spawnParticle(player.x, player.y, '#ffd700', (Math.random()-0.5)*10, (Math.random()-0.5)*10, 2, 30);
+                if (recoveryTimer <= 0) {
+                    isRecovering = false; targetTimeScale = 1.0; timeScale = 1.0;
+                    player.vy = 0;
+                }
+            } else if (isDead) {
+                handleDeathFrames();
+            } else {
+                timeScale += (targetTimeScale - timeScale) * 0.1;
+                if (timeScale > 0.01 && !isIntro) {
+                    frameCount++; activeFrameCount += timeScale;
+                    if (hasStarted) {
+                        score += 1 * timeScale * scoreMultiplier; distance += Math.floor((scrollSpeed / 2) * timeScale);
+                        survivalFrames += timeScale;
+                    }
+                } else if (isIntro) {
+                    activeFrameCount += 1; 
+                }
+                updatePhysics(); updateEnvironment(); 
+            }
+            
+            updateHUD(); draw(); requestAnimationFrame(loop);
+        }
+
+        function runIntroSequence() {
+            isIntro = true; hudContainer.style.opacity = 0; introSeq.style.opacity = 1;
+            setTimeout(() => { introSeq.innerText = "INITIALIZING STOCHASTIC PROCESS..."; }, 500);
+            setTimeout(() => { introSeq.innerText = "CALCULATING DRIFT..."; hudContainer.style.opacity = 1; }, 1500);
+            setTimeout(() => { introSeq.innerText = "VOLATILITY DETECTED..."; }, 2500);
+            setTimeout(() => { introSeq.innerText = "BEGIN SIMULATION"; }, 3500);
+            setTimeout(() => { introSeq.style.opacity = 0; isIntro = false; }, 4500);
+        }
+
+	document.getElementById('ui-total-score').innerText = "0";
+        document.getElementById('ui-score').innerText = "0.00s";
+
+        function resetGame() {
+            loadSelectedSkin();
+            postRunAnalysis.classList.remove('active');
+            dmgOverlay.style.boxShadow = "inset 0 0 0px var(--accent-red)";
+            document.getElementById('boss-ui').classList.remove('visible'); document.body.classList.remove('boss-active'); document.body.classList.remove('warning-active');
+            hudContainer.style.opacity = 1; hudContainer.classList.remove('glitch-extreme'); reviveInd.classList.remove('active');
+
+            player.x = width * 0.3; player.y = height / 2; player.vy = 0; player.trail = []; player.visualPulse = 0; player.visualStoch = 0; player.hasShield = false; player.hasRevive = false;
+            mu = 0; driftCharge = 0; sigma = 2; baseSigma = 2; dW = 0; activeShock = 0;
+            score = 0; displayScore = 0; lastMilestone = 0; distance = 0; scoreMultiplier = 1.0;
+            frameCount = 0; activeFrameCount = 0; survivalFrames = 0; hasStarted = false; scrollSpeed = 8; timeScale = 1.0; targetTimeScale = 1.0; isPaused = false; isDead = false; deathTimer = 0;
+            isRecovering = false; recoveryTimer = 0;
+            autoFireTimer = 0; activePowerup = null; powerupTimer = 0; powerupDisplay.style.opacity = 0;
+            pauseOverlay.classList.remove('active'); transformContainer.style.opacity = 0;
+
+            // Clear any popup state left over from a previous run so nothing can resurface stuck.
+            if (window.popupTimers) window.popupTimers.forEach(clearTimeout);
+            window.popupTimers = []; window.popupQueue = []; window.popupActive = false; window.popupCurrentPriority = -1;
+            popupContainer.classList.remove('visible'); popupContainer.style.opacity = 0; popupContainer.style.display = 'none';
+            uiEq.classList.remove('collapsing');
+
+            randomSeedStr = "0x" + Math.floor(Math.random()*16777215).toString(16).toUpperCase();
+            stats = { nodes: 0, nearMisses: 0, bosses: 0, maxDrift: 0, volSum: 0, volTicks: 0 };
+            
+            obstacles = []; particles = []; portals = []; knowledgeNodes = []; volZones = []; activeBoss = null; playerProjectiles = []; enemyProjectiles = []; powerupItems = []; scoreOrbs = []; backgroundEvents = [];
+            inItoRealm = false; processType = 'standard'; transformTimer = 0;
+            envRules = { bgColor: '#030412', gridColor: 'rgba(255,255,255,0.05)', gridWarp: false, theme: Themes[0] };
+            waveField = { phase: [0, 0, 0], vel: [0.018, 0.013, 0.008], amp: [150, 90, 50] };
+            bgDisplayRGB = hexToRgb(envRules.bgColor);
+            gridWarpAmount = 0;
+            updateThemeCSS();
+            
+            Director.phase = 0; Director.difficulty = 1.0; Director.lastObsDist = 0; Director.lastEventDist = 0; Director.stormActive = false; Director.warningPhase = 0; Director.pendingBoss = null; Director.lastBoss = null;
+            Director.setPhase(1, "CALIBRATION");
+
+            window.uiSts = document.querySelectorAll('.eq-st'); 
+            updateEquationHUD();
+            
+            runIntroSequence();
+            isPlaying = true; requestAnimationFrame(loop);
+        }
+
+        window.uiSts = document.querySelectorAll('.eq-st');
+        resetGame();
+
+    </script>
+</body>
+</html>

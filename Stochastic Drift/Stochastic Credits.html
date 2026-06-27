@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stochastic Drift - Credits</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;700&family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --bg-dark: #010105;
+            --accent-green: #7fff8c;
+            --accent-cyan: #00f3ff;
+            --accent-red: #ff3366;
+            --text-main: #ffffff;
+            --text-dim: rgba(255, 255, 255, 0.4);
+            --font-display: 'Orbitron', sans-serif;
+            --font-ui: 'Rajdhani', sans-serif;
+            --font-mono: 'Share Tech Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: var(--font-ui);
+            color: var(--text-main);
+            user-select: none;
+        }
+
+        /* --- CINEMATIC BARS & BACKGROUND --- */
+        .cinematic-bar {
+            position: fixed; left: 0; width: 100%; height: 10vh;
+            background: #000; z-index: 100;
+            box-shadow: 0 0 50px rgba(0,0,0,1);
+        }
+        .bar-top { top: 0; }
+        .bar-bottom { bottom: 0; }
+
+        #noise-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 1; opacity: 0.03;
+            background: url('data:image/svg+xml;utf8,%3Csvg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"%3E%3Cfilter id="noiseFilter"%3E%3CfeTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch"/%3E%3C/filter%3E%3Crect width="100%25" height="100%25" filter="url(%23noiseFilter)"/%3E%3C/svg%3E');
+        }
+
+        #particle-canvas {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 2; opacity: 0.5;
+        }
+
+        /* --- SCROLLING CREDITS CONTAINER --- */
+        .credits-viewport {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; display: flex; justify-content: center;
+            overflow: hidden;
+            mask-image: linear-gradient(to bottom, transparent 10%, black 30%, black 70%, transparent 90%);
+            -webkit-mask-image: linear-gradient(to bottom, transparent 10%, black 30%, black 70%, transparent 90%);
+        }
+
+        .credits-scroll {
+            position: absolute; 
+            top: 100vh; 
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+            width: 100%; max-width: 800px;
+	    padding-bottom: 100vh;
+            animation: cinematicScroll 35s linear infinite;
+        }
+
+        @keyframes cinematicScroll {
+            0% { transform: translateY(0); }
+            90% { transform: translateY(-100%); }
+           100% { transform: translateY(-100%); }
+        }
+
+        /* --- TYPOGRAPHY & BLOCKS --- */
+        .credit-block { margin-bottom: 90px; }
+        
+        .role {
+            font-family: var(--font-mono); font-size: 1rem; color: var(--text-dim);
+            letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 15px;
+        }
+
+        .name {
+            font-family: var(--font-display); font-size: 2.2rem; color: #fff;
+            letter-spacing: 0.1em; text-shadow: 0 0 20px rgba(255,255,255,0.2);
+        }
+
+        .studio-name {
+            font-family: var(--font-display);
+            font-size: 3.5rem; color: var(--accent-green);
+            text-shadow: 0 0 30px rgba(127, 255, 140, 0.4);
+            letter-spacing: 0.05em; margin-bottom: 10px;
+        }
+
+        /* --- FINAL LOGO --- */
+        .finale-block { margin-top: 150px; margin-bottom: 200px; }
+        
+        .finale-logo {
+            font-family: var(--font-display); font-size: 4rem; font-weight: 900; color: #fff;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5), 0 0 20px var(--accent-cyan), 0 0 40px var(--accent-cyan);
+            letter-spacing: 0.1em;
+        }
+
+        .finale-tagline {
+            font-family: var(--font-mono); font-size: 1.2rem; color: var(--text-dim);
+            letter-spacing: 0.5em; margin-top: 20px; text-transform: uppercase;
+        }
+
+        .btn-return {
+            position: fixed; bottom: 40px; right: 40px; z-index: 200;
+            background: transparent; border: 1px solid rgba(0, 243, 255, 0.3);
+            color: rgba(0, 243, 255, 0.6); padding: 12px 25px;
+            font-family: var(--font-mono); font-size: 1rem;
+            cursor: pointer; transition: 0.3s; letter-spacing: 0.15em;
+            text-transform: uppercase; border-radius: 2px;
+        }
+        .btn-return:hover {
+            border-color: var(--accent-cyan); color: var(--accent-cyan);
+            background: rgba(0, 243, 255, 0.1); box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="noise-overlay"></div>
+    <canvas id="particle-canvas"></canvas>
+
+    <div class="cinematic-bar bar-top"></div>
+    <div class="cinematic-bar bar-bottom"></div>
+
+    <div class="credits-viewport">
+        <div class="credits-scroll">
+            
+            <div class="credit-block" style="margin-top: 0;">
+                <div class="role">Presented By</div>
+                <div class="studio-name">DESHRIMPO GAMES</div>
+            </div>
+
+            <div class="credit-block">
+                <div class="role">Engine Architecture & Development</div>
+                <div class="name">Anthony Artino</div>
+            </div>
+
+            <div class="credit-block">
+                <div class="role">Mathematical Modeling & Implementation</div>
+                <div class="name">Anthony Artino</div>
+            </div>
+
+            <div class="credit-block">
+                <div class="role">Studio Director</div>
+                <div class="name">Anthony Artino</div>
+            </div>
+
+            <div class="finale-block">
+                <div class="finale-logo">STOCHASTIC DRIFT</div>
+                <div class="finale-tagline">Simulation Concluded</div>
+            </div>
+
+        </div>
+    </div>
+
+    <button class="btn-return" onclick="window.location.href='index Sde.html'">[ ESC ] Return</button>
+
+    <script>
+        const canvas = document.getElementById('particle-canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height, particles = [];
+
+        function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
+        window.addEventListener('resize', resize); resize();
+
+        for (let i = 0; i < 100; i++) {
+            particles.push({
+                x: Math.random() * width, y: Math.random() * height,
+                vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3 - 0.2,
+                size: Math.random() * 2, alpha: Math.random() * 0.5 + 0.1
+            });
+        }
+
+        function drawParticles() {
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '#00f3ff';
+            for (let p of particles) {
+                p.x += p.vx; p.y += p.vy;
+                if (p.y < -10) p.y = height + 10;
+                if (p.x < -10) p.x = width + 10;
+                if (p.x > width + 10) p.x = -10;
+                ctx.globalAlpha = p.alpha;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1.0;
+            requestAnimationFrame(drawParticles);
+        }
+        drawParticles();
+    </script>
+</body>
+</html>
