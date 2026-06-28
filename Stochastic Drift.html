@@ -324,7 +324,7 @@
             <div class="pra-stat"><span>NEAR MISSES</span><span id="pra-misses">0</span></div>
             <div class="pra-stat"><span>BOSSES DEFEATED</span><span id="pra-bosses">0</span></div>
         </div>
-        <button class="btn-restart" onclick="window.location.href='index Sde.html'">RETURN TO MAIN MENU</button>
+        <button class="btn-restart" onclick="playSfx('select'); window.location.href='index Sde.html'">RETURN TO MAIN MENU</button>
     </div>
 
     <div id="phase-indicator">PHASE 1: CALIBRATION</div>
@@ -453,6 +453,130 @@
         loadSelectedSkin();
         window.addEventListener('focus', loadSelectedSkin);
 
+        // ============================================================
+        // AUDIO SYSTEM
+        // Expects an "ost" folder sitting next to this HTML file containing files with these
+        // exact names. Volume is driven by the Settings page's saved Master/Music/Effects
+        // sliders (the shared 'stochastic_settings' localStorage key) — re-read on focus so
+        // changes made there take effect without needing to reload the game.
+        // ============================================================
+        const AUDIO_SRC = {
+            select:         'ost/Stochastic Select.mp4',
+            enemyFire:      'ost/Stochastic Enemy_Fire.mp4',
+            lostMartingale: 'ost/Stochastic Lost Martingale.mp4',
+            upgrade:        'ost/Stochastic Upgrade.mp4',
+            point:          'ost/Stochastic Point.mp4',
+            bigShot:        'ost/Stochastic Big_Shot.mp4',
+            nearMiss:       'ost/Stochastic Near_Miss.mp4',
+            nodes:          'ost/Stochastic Nodes.mp4',
+            shieldDestroyed:'ost/Stochastic Shield_Destroyed.mp4',
+            laser:          'ost/Stochastic Laser.mp4',
+            death:          'ost/Stochastic Death.mp3',
+            alert:          'ost/Stochastic Alert.mov',
+            music:          'ost/Stochastic Music.mp3',
+            boss:           'ost/Stochastic Boss.mp3'
+        };
+        const SFX_POOL_SIZE = 5; // lets rapid/overlapping triggers (e.g. laser fire) play simultaneously
+        const sfxPools = {};
+        let musicEl = null, bossMusicEl = null, musicStarted = false, bossMusicActive = false;
+        let audioSettings = { volMaster: 80, volMusic: 60, volSfx: 100 };
+
+        function sfxVolume() { return (audioSettings.volMaster/100) * (audioSettings.volSfx/100); }
+        function musicVolume() { return (audioSettings.volMaster/100) * (audioSettings.volMusic/100); }
+
+        function loadAudioSettings() {
+            try {
+                let saved = JSON.parse(localStorage.getItem('stochastic_settings') || 'null');
+                if (saved) {
+                    if (typeof saved.volMaster === 'number') audioSettings.volMaster = saved.volMaster;
+                    if (typeof saved.volMusic === 'number') audioSettings.volMusic = saved.volMusic;
+                    if (typeof saved.volEffects === 'number') audioSettings.volSfx = saved.volEffects;
+                }
+            } catch(e) {}
+            try {
+                if (musicEl) musicEl.volume = musicVolume();
+                if (bossMusicEl) bossMusicEl.volume = musicVolume();
+            } catch(e) {}
+        }
+
+        function initAudioSystem() {
+            Object.keys(AUDIO_SRC).forEach(key => {
+                if (key === 'music' || key === 'boss') return;
+                let pool = [];
+                for (let i = 0; i < SFX_POOL_SIZE; i++) {
+                    let a = new Audio(AUDIO_SRC[key]);
+                    a.preload = 'auto';
+                    pool.push(a);
+                }
+                sfxPools[key] = { pool, idx: 0 };
+            });
+            musicEl = new Audio(AUDIO_SRC.music); musicEl.loop = true; musicEl.preload = 'auto';
+            bossMusicEl = new Audio(AUDIO_SRC.boss); bossMusicEl.loop = true; bossMusicEl.preload = 'auto';
+            loadAudioSettings();
+        }
+        initAudioSystem();
+        window.addEventListener('focus', loadAudioSettings);
+
+        function playSfx(key) {
+            let entry = sfxPools[key];
+            if (!entry) return;
+            try {
+                let a = entry.pool[entry.idx];
+                entry.idx = (entry.idx + 1) % entry.pool.length;
+                a.pause(); a.currentTime = 0;
+                a.volume = sfxVolume();
+                a.play().catch(() => {});
+            } catch(e) {}
+        }
+
+        function fadeAudioEl(el, targetVol, durationMs, onDone) {
+            if (!el) return;
+            let startVol = el.volume, startT = performance.now();
+            function step() {
+                let p = Math.min(1, (performance.now() - startT) / durationMs);
+                el.volume = startVol + (targetVol - startVol) * p;
+                if (p < 1) requestAnimationFrame(step);
+                else if (onDone) onDone();
+            }
+            requestAnimationFrame(step);
+        }
+
+        // Called the moment the player provides their first input — reliably satisfies browser
+        // autoplay-with-sound restrictions since it runs inside a real user-gesture handler.
+        function startBackgroundMusic() {
+            if (musicStarted) return;
+            musicStarted = true;
+            try {
+                musicEl.volume = musicVolume();
+                musicEl.play().catch(() => {
+                    const resume = () => { musicEl.play().catch(() => {}); };
+                    window.addEventListener('click', resume, { once: true });
+                    window.addEventListener('keydown', resume, { once: true });
+                });
+            } catch(e) {}
+        }
+
+        function startBossMusic() {
+            if (bossMusicActive) return;
+            bossMusicActive = true;
+            try {
+                fadeAudioEl(musicEl, 0, 800, () => { try { musicEl.pause(); } catch(e) {} });
+                bossMusicEl.currentTime = 0; bossMusicEl.volume = 0;
+                bossMusicEl.play().catch(() => {});
+                fadeAudioEl(bossMusicEl, musicVolume(), 800);
+            } catch(e) {}
+        }
+        function endBossMusic() {
+            if (!bossMusicActive) return;
+            bossMusicActive = false;
+            try {
+                fadeAudioEl(bossMusicEl, 0, 1000, () => { try { bossMusicEl.pause(); } catch(e) {} });
+                musicEl.volume = 0;
+                musicEl.play().catch(() => {});
+                fadeAudioEl(musicEl, musicVolume(), 1000);
+            } catch(e) {}
+        }
+
         // PHYSICS VARS
         const TWO_PI = Math.PI * 2;
         const player = { x: 0, y: 0, vy: 0, size: 20, trail: [], visualPulse: 0, visualStoch: 0, hasShield: false, hasRevive: false };
@@ -512,6 +636,7 @@
 
         function togglePause() {
             if(!isPlaying || isDead || isIntro || isRecovering) return; isPaused = !isPaused;
+            playSfx('select');
             if(isPaused) { targetTimeScale = 0; pauseOverlay.classList.add('active'); hudContainer.style.opacity = 0.2; } 
             else { targetTimeScale = 1.0; pauseOverlay.classList.remove('active'); hudContainer.style.opacity = 1; }
         }
@@ -546,6 +671,7 @@
         }
 
         function triggerNearMiss() {
+            playSfx('nearMiss');
             stats.nearMisses++;
             scoreMultiplier = Math.min(scoreMultiplier + 0.5, 5.0);
             multDisp.innerText = `x${scoreMultiplier.toFixed(1)}`; multDisp.classList.add('active');
@@ -633,6 +759,7 @@
         // --- DEATH SEQUENCE & POST-RUN ---
         function triggerDeathSequence() {
             if(isDead || isRecovering) return;
+            playSfx('death');
             isDead = true; deathTimer = 0; targetTimeScale = 0; timeScale = 0; 
 
             // Clean up popups
@@ -669,6 +796,7 @@
         }
 
         function triggerMartingaleRecovery() {
+            playSfx('lostMartingale');
             isRecovering = true; recoveryTimer = 60; targetTimeScale = 0; timeScale = 0;
             triggerExplosion(player.x, player.y, '#ffd700', 60); triggerScreenShake(30);
             queuePopup("MARTINGALE RECOVERY ACTIVATED", "Returning to equilibrium state.", POPUP_PRIORITY.EVENT, 2400);
@@ -707,6 +835,20 @@
             
             let currentAvgVol = parseFloat(localStorage.getItem('stochastic_avg_vol') || '2.0');
             localStorage.setItem('stochastic_avg_vol', ((currentAvgVol + sessionAvgVol) / 2).toFixed(2));
+
+            let totalScore = parseInt(localStorage.getItem('stochastic_total_score') || '0') + Math.floor(score);
+            localStorage.setItem('stochastic_total_score', totalScore);
+
+            let currentBestScore = parseInt(localStorage.getItem('stochastic_best_score') || '0');
+            if (Math.floor(score) > currentBestScore) localStorage.setItem('stochastic_best_score', Math.floor(score));
+
+            // Merge this run's drift-usage histogram into the persistent totals (one localStorage
+            // write per bucket at run-end, rather than every frame).
+            for (let b = -5; b <= 5; b++) {
+                let key = 'drift_usage_' + (b > 0 ? '+' + b : String(b));
+                let prev = parseInt(localStorage.getItem(key) || '0');
+                localStorage.setItem(key, prev + (driftBucketCounts[b] || 0));
+            }
         }
 
         function animateStat(id, target, suffix, isInt) {
@@ -724,6 +866,7 @@
             phase: 1, difficulty: 1.0, lastObsDist: 0, lastEventDist: 0, stormActive: false, stormTimer: 0, warningPhase: 0, pendingBoss: null, lastBoss: null,
             
             triggerWarning: function(bossId) {
+                playSfx('alert');
                 let title = "", desc = "";
                 if (bossId === 'brownian') { title = "BROWNIAN BEAST APPROACHING"; desc = "Pure stochastic motion has destabilized the simulation."; }
                 else if (bossId === 'volatility') { title = "VOLATILITY TITAN APPROACHING"; desc = "Variance is increasing beyond expected limits."; }
@@ -819,6 +962,7 @@
             },
             triggerBoss: function(type) {
                 document.body.classList.add('boss-active'); 
+                startBossMusic();
                 if (type === 'brownian') activeBoss = new BrownianBeast();
                 if (type === 'volatility') activeBoss = new VolatilityTitan();
                 if (type === 'ito') activeBoss = new ItoArchitect();
@@ -1057,6 +1201,7 @@
             processType = type;
             let def = PORTAL_DEFS[type];
             if (type !== 'standard') {
+                playSfx('upgrade');
                 if(def) { 
                     console.log("[DEBUG] Transformation activated:", type); 
                     queuePopup(def.msg, def.desc, POPUP_PRIORITY.TRANSFORM, 2200); 
@@ -1206,7 +1351,6 @@
                 document.getElementById('boss-ui').classList.remove('visible');
 		
 		localStorage.setItem('stochastic_boss_' + this.id, 'true');
-		setTimeout(() => { activeBoss = null; enemyProjectiles.length = 0; applyTransformation('standard'); }, 3000);
 
                 // Stage 1 (after the explosion has had a beat to play out): the boss's environmental
                 // signature begins releasing its grip on the world, and the equation starts to dissolve —
@@ -1216,6 +1360,7 @@
                     envRules.bgColor = envRules.theme.bg;
                     processType = 'standard';
                     fadeEquationTransition(() => updateEquationHUD());
+                    endBossMusic();
                 }, 1300);
 
                 // Stage 2: encounter fully concluded — clear remaining hazards and re-validate UI state.
@@ -1237,7 +1382,7 @@
                 for(let n of this.nodes) { n.x += randomNormal() * 5 * timeScale; n.y += randomNormal() * 5 * timeScale; n.x -= n.x * 0.05 * timeScale; n.y -= n.y * 0.05 * timeScale; }
                 if(this.state === 'PHASE1' && Math.floor(this.timer) % 60 === 0 && timeScale > 0.1) {
                     pulseBossEquationTerm(); // chaotic stochastic burst — dWt is actively driving this attack
-                    for(let i=0; i<3; i++) enemyProjectiles.push({ x: this.x, y: this.y + (Math.random()-0.5)*100, vx: -10, vy: (Math.random()-0.5)*5, radius: 15, color: this.color, type: 'wave' });
+                    for(let i=0; i<3; i++) { enemyProjectiles.push({ x: this.x, y: this.y + (Math.random()-0.5)*100, vx: -10, vy: (Math.random()-0.5)*5, radius: 15, color: this.color, type: 'wave' }); playSfx('bigShot'); }
                 }
             }
             draw(ctx) {
@@ -1259,6 +1404,7 @@
                         pulseBossEquationTerm(); // volatility surge — σ spikes to drive this attack
                         let isTop = Math.random() > 0.5;
                         enemyProjectiles.push({ x: player.x + 400 + Math.random()*200, y: isTop ? 0 : height, vx: -8, vy: isTop ? 10 : -10, radius: 20, color: this.color, type: 'crystal' });
+                        playSfx('enemyFire');
                     }
                 } 
             }
@@ -1286,6 +1432,7 @@
                 if(this.state === 'PHASE1' && Math.floor(this.timer) % 50 === 0 && timeScale > 0.1) {
                     pulseBossEquationTerm(); // transformation attack — the second-derivative term is doing the work
                     enemyProjectiles.push({ x: this.x, y: this.y, vx: -12, vy: (player.y - this.y)*0.02, radius: 10, color: this.color, type: 'orb' });
+                    playSfx('enemyFire');
                 }
             }
             draw(ctx) {
@@ -1318,6 +1465,7 @@
                             pulseBossEquationTerm(); // rare-event jump attack — JtdNt fires dramatically
                             triggerScreenShake(25);
                             enemyProjectiles.push({ x: this.x - 40, y: this.targetY, vx: -25, vy: 0, radius: 40, color: '#ff00ff', type: 'swan_blast', trail: [] });
+                            playSfx('bigShot');
                             this.attackCharge = 0;
                         }
                     }
@@ -1340,8 +1488,9 @@
 
         // --- GAME LOOP LOGIC ---
 	let hasStarted = false, survivalFrames = 0;
+	let driftBucketCounts = { '-5':0,'-4':0,'-3':0,'-2':0,'-1':0,'0':0,'1':0,'2':0,'3':0,'4':0,'5':0 };
         function updatePhysics() {
-	    if (!hasStarted && isSpaceDown && !isIntro) hasStarted = true;
+	    if (!hasStarted && isSpaceDown && !isIntro) { hasStarted = true; startBackgroundMusic(); }
 		
             if (isIntro) return;
 
@@ -1350,6 +1499,11 @@
             
             if(Math.abs(mu) > stats.maxDrift) stats.maxDrift = Math.abs(mu);
             stats.volSum += sigma * timeScale; stats.volTicks += timeScale;
+
+            if (hasStarted) {
+                let bucket = Math.max(-5, Math.min(5, Math.round(mu)));
+                driftBucketCounts[String(bucket)] += timeScale;
+            }
 
             let isStandardMath = ['standard', 'magnet', 'brownian', 'volatility', 'ito', 'swan'].includes(processType);
 
@@ -1411,6 +1565,7 @@
         function fireProjectiles(dmgMult) {
             let px = player.x + player.size; let py = player.y;
             let dmg = 15 * dmgMult;
+            playSfx((activePowerup === 'knowledge' || activePowerup === 'eigen') ? 'bigShot' : 'laser');
             if (!activePowerup) { playerProjectiles.push({ x: px, y: py, vx: 15, vy: 0, radius: 5, color: envRules.theme.p, type: 'normal', dmg: dmg }); } 
             else if (activePowerup === 'drift') { playerProjectiles.push({ x: px, y: py, vx: 25, vy: 0, radius: 8, color: '#00ffaa', type: 'fast', dmg: dmg }); } 
             else if (activePowerup === 'knowledge') {
@@ -1514,7 +1669,7 @@
             if (playerHit && timeScale > 0 && !isDead && !isRecovering) {
                 if (player.hasShield) {
                     console.log("[DEBUG] Shield consumed.");
-                    player.hasShield = false; triggerExplosion(player.x, player.y, '#00f3ff', 40); triggerScreenShake(20);
+                    player.hasShield = false; playSfx('shieldDestroyed'); triggerExplosion(player.x, player.y, '#00f3ff', 40); triggerScreenShake(20);
                     queuePopup("BUFFER SHATTERED", "Extreme realization absorbed.", POPUP_PRIORITY.EVENT, 2200);
                 
                     for(let j=enemyProjectiles.length-1; j>=0; j--) {
@@ -1564,7 +1719,7 @@
 
                 let dx = player.x - orb.x, dy = player.y - orb.y;
                 if(orb.active && Math.sqrt(dx*dx + dy*dy) < orb.radius + player.size) {
-                    orb.active = false; score += 200 * scoreMultiplier;
+                    orb.active = false; score += 200 * scoreMultiplier; playSfx('point');
                     spawnFloatingText(orb.x, orb.y, `+${200 * Math.floor(scoreMultiplier)}`, '#ffd700');
                     scoreOrbs.splice(i, 1); continue;
                 }
@@ -1580,7 +1735,7 @@
 
                 let dx = player.x - kn.x, dy = player.y - kn.y;
                 if(kn.active && Math.sqrt(dx*dx + dy*dy) < kn.radius + player.size) {
-                    kn.active = false; score += 1000 * scoreMultiplier; stats.nodes++;
+                    kn.active = false; score += 1000 * scoreMultiplier; stats.nodes++; playSfx('nodes');
                     triggerExplosion(kn.x, kn.y, envRules.theme.p); spawnFloatingText(kn.x, kn.y, `+${1000 * Math.floor(scoreMultiplier)}`, envRules.theme.p);
                     unlockAchievement("NODE DECRYPTED", "Data point secured.", "∫");
                 }
@@ -1628,11 +1783,11 @@
                 if(Math.sqrt(dx*dx + dy*dy) < p.radius + player.size) {
                     console.log("[DEBUG] Powerup collected:", p.type);
                     if (p.type === 'shield') {
-                        player.hasShield = true;
+                        player.hasShield = true; playSfx('upgrade');
                         triggerExplosion(p.x, p.y, '#00f3ff'); spawnFloatingText(p.x, p.y - 30, "VOLATILITY BUFFER", '#00f3ff');
                         queuePopup("VOLATILITY BUFFER", "Volatility measures uncertainty, not direction.", POPUP_PRIORITY.PICKUP, 2000);
                     } else if (p.type === 'revive') {
-                        player.hasRevive = true; reviveInd.classList.add('active');
+                        player.hasRevive = true; reviveInd.classList.add('active'); playSfx('upgrade');
                         triggerExplosion(p.x, p.y, '#ffd700'); spawnFloatingText(p.x, p.y - 30, "MARTINGALE RECOVERY", '#ffd700');
                         queuePopup("MARTINGALE RECOVERY", "The expected future value equals the current value.", POPUP_PRIORITY.PICKUP, 2000);
                     } else if (p.type === 'squared') {
@@ -1641,7 +1796,7 @@
                         triggerExplosion(p.x, p.y, '#ffd700', 30);
                         spawnFloatingText(p.x, p.y - 40, "QUADRATIC EXPANSION MODE", '#ffd700');
                     } else {
-                        activePowerup = p.type; powerupTimer = 600;
+                        activePowerup = p.type; powerupTimer = 600; playSfx('upgrade');
                         let pName = "WEAPON UPGRADE";
                         if(p.type==='drift') pName="MOMENTUM CORE";
                         if(p.type==='knowledge') pName="RATE OF FIRE (λ)";
@@ -2244,6 +2399,7 @@
             mu = 0; driftCharge = 0; sigma = 2; baseSigma = 2; dW = 0; activeShock = 0;
             score = 0; displayScore = 0; lastMilestone = 0; distance = 0; scoreMultiplier = 1.0;
             frameCount = 0; activeFrameCount = 0; survivalFrames = 0; hasStarted = false; scrollSpeed = 8; timeScale = 1.0; targetTimeScale = 1.0; isPaused = false; isDead = false; deathTimer = 0;
+            driftBucketCounts = { '-5':0,'-4':0,'-3':0,'-2':0,'-1':0,'0':0,'1':0,'2':0,'3':0,'4':0,'5':0 };
             isRecovering = false; recoveryTimer = 0;
             autoFireTimer = 0; activePowerup = null; powerupTimer = 0; powerupDisplay.style.opacity = 0;
             pauseOverlay.classList.remove('active'); transformContainer.style.opacity = 0;
