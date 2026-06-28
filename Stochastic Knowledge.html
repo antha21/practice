@@ -410,6 +410,9 @@
 </head>
 <body>
 
+	<audio id="theme-audio" src="./ost/Stochastic Theme.mp3" loop></audio>
+    	<audio id="select-audio" src="./ost/Stochastic Select.mp4" preload="auto"></audio>
+
     <!-- Ambient Spacy Particle Background -->
     <canvas id="bg-canvas"></canvas>
 
@@ -431,7 +434,7 @@
             
             <div style="flex-grow: 1;"></div>
             
-            <button class="btn-return" onclick="window.location.href='index Sde.html'">EXIT TERMINAL</button>
+            <button class="btn-return" onclick="window.location.href='index.html'">EXIT TERMINAL</button>
         </div>
 
         <div id="main-content" class="no-pad">
@@ -1814,6 +1817,36 @@
                 main.scrollTop = 0;
             }
         }
+
+	// --- GLOBAL AUDIO CONTROLLER ---
+        const themeAudio = document.getElementById('theme-audio');
+        const selectAudio = document.getElementById('select-audio');
+
+        // 1. Background Music Continuity
+        const savedTime = sessionStorage.getItem('stochastic_theme_time');
+        if (savedTime !== null) {
+            themeAudio.currentTime = parseFloat(savedTime);
+        }
+        
+        // Play immediately upon entering the Knowledge Vault
+        themeAudio.play().catch(() => {
+            // Browsers block autoplay if the user opens a link in a new tab without clicking.
+            // This waits for their first interaction to resume the music.
+            window.addEventListener('click', () => themeAudio.play(), { once: true });
+        });
+
+        // Save timestamp before returning to index or leaving page
+        window.addEventListener('beforeunload', () => {
+            sessionStorage.setItem('stochastic_theme_time', themeAudio.currentTime);
+        });
+
+        // 2. Button Select SFX (targets all interactive elements in the vault)
+        document.querySelectorAll('button, .nav-btn, .btn-equip, .skin-thumb, .btn-return, .interactive-card').forEach(btn => {
+            btn.addEventListener('click', () => {
+                selectAudio.currentTime = 0; 
+                selectAudio.play().catch(()=>{});
+            });
+        });
     </script>
 </body>
 </html>
