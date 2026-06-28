@@ -473,7 +473,10 @@
             laser:          './ost/Stochastic Laser.mp4',
             death:          './ost/Stochastic Death.mp3',
             alert:          './ost/Stochastic Alert.mov',
-            music:          './ost/Stochastic Music.mp3',
+			music: {
+					src: './ost/Stochastic Music.mp3', 
+				 	volume: 0.25
+					},
             boss:           './ost/Stochastic Boss.mp3'
         };
         const SFX_POOL_SIZE = 5; // lets rapid/overlapping triggers (e.g. laser fire) play simultaneously
