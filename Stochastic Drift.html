@@ -41,6 +41,7 @@
         #game-canvas { 
             display: block; width: 100%; height: 100%; z-index: 1; 
             transition: transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1), filter 0.3s ease, opacity 2s ease;
+            transform: translateZ(0); backface-visibility: hidden; will-change: transform, filter;
         }
 
         body.boss-active #game-canvas { transform: scale(0.97) rotateX(2deg); filter: contrast(1.15) saturate(1.2); }
@@ -324,7 +325,7 @@
             <div class="pra-stat"><span>NEAR MISSES</span><span id="pra-misses">0</span></div>
             <div class="pra-stat"><span>BOSSES DEFEATED</span><span id="pra-bosses">0</span></div>
         </div>
-        <button class="btn-restart" onclick="playSfx('select'); window.location.href='index.html'">RETURN TO MAIN MENU</button>
+        <button class="btn-restart" onclick="playSfx('select'); window.location.href='index Sde.html'">RETURN TO MAIN MENU</button>
     </div>
 
     <div id="phase-indicator">PHASE 1: CALIBRATION</div>
@@ -334,13 +335,23 @@
     <script>
         const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d');
         let width, height; function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
-        window.addEventListener('resize', resize); resize();
+        // Setting canvas.width/height clears the entire bitmap to transparent immediately. If the
+        // browser composites a frame before the next natural rAF tick repaints it, the page's
+        // background can show through for a single frame — a likely contributor to the reported
+        // white-flash issue, especially on resize/orientation-change. Repainting synchronously
+        // right after a resize event closes that window. (Not applied to the very first call below,
+        // since game state isn't initialized yet at that point.)
+        window.addEventListener('resize', () => { resize(); try { draw(); } catch(e) {} });
+        resize();
 
         // --- GAME ENGINE STATE ---
         let isPlaying = false, isSpaceDown = false, isPaused = false;
         let isDead = false, deathTimer = 0;
         let isIntro = false, isRecovering = false, recoveryTimer = 0;
         let timeScale = 1.0, targetTimeScale = 1.0;
+        // True pause/slow-mo easing state, kept separate from the per-frame "timeScale" value that
+        // the rest of the codebase consumes — see the delta-time note in loop() for why.
+        let _easedSpeed = 1.0, _lastFrameTs = null, _dt = 1;
         let frameCount = 0, activeFrameCount = 0, scrollSpeed = 8;
         let score = 0, displayScore = 0, lastMilestone = 0, distance = 0, screenShake = 0, scoreMultiplier = 1.0;
         let randomSeedStr = "0x" + Math.floor(Math.random()*16777215).toString(16).toUpperCase();
@@ -461,20 +472,20 @@
         // changes made there take effect without needing to reload the game.
         // ============================================================
         const AUDIO_SRC = {
-            select:         './ost/Stochastic Select.mp4',
-            enemyFire:      './ost/Stochastic Enemy_Fire.mp4',
-            lostMartingale: './ost/Stochastic Lost Martingale.mp4',
-            upgrade:        './ost/Stochastic Upgrade.mp4',
-            point:          './ost/Stochastic Point.mp4',
-            bigShot:        './ost/Stochastic Big_Shot.mp4',
-            nearMiss:       './ost/Stochastic Near_Miss.mp4',
-            nodes:          './ost/Stochastic Nodes.mp4',
-            shieldDestroyed:'./ost/Stochastic Shield_Destroyed.mp4',
-            laser:          './ost/Stochastic Laser.mp4',
-            death:          './ost/Stochastic Death.mp3',
-            alert:          './ost/Stochastic Alert.mov',
-			music: 			'./ost/Stochastic Music.mp3', 
-            boss:           './ost/Stochastic Boss.mp3'
+            select:         'ost/Stochastic Select.mp4',
+            enemyFire:      'ost/Stochastic Enemy_Fire.mp4',
+            lostMartingale: 'ost/Stochastic Lost Martingale.mp4',
+            upgrade:        'ost/Stochastic Upgrade.mp4',
+            point:          'ost/Stochastic Point.mp4',
+            bigShot:        'ost/Stochastic Big_Shot.mp4',
+            nearMiss:       'ost/Stochastic Near_Miss.mp4',
+            nodes:          'ost/Stochastic Nodes.mp4',
+            shieldDestroyed:'ost/Stochastic Shield_Destroyed.mp4',
+            laser:          'ost/Stochastic Laser.mp4',
+            death:          'ost/Stochastic Death.mp3',
+            alert:          'ost/Stochastic Alert.mov',
+            music:          'ost/Stochastic Music.mp3',
+            boss:           'ost/Stochastic Boss.mp3'
         };
         const SFX_POOL_SIZE = 5; // lets rapid/overlapping triggers (e.g. laser fire) play simultaneously
         const sfxPools = {};
@@ -776,8 +787,9 @@
         }
 
         function handleDeathFrames() {
-            deathTimer++;
-            if(deathTimer === 60) {
+            let _prevDeathTimer = deathTimer;
+            deathTimer += _dt;
+            if(_prevDeathTimer < 60 && deathTimer >= 60) {
                 hudContainer.style.opacity = 0; hudContainer.classList.remove('glitch-extreme');
                 triggerExplosion(player.x, player.y, '#ff3366');
                 for(let i=0; i<30; i++) spawnParticle(player.x, player.y, '#fff', (Math.random()-0.5)*30, (Math.random()-0.5)*30, Math.random()*5+2, 100);
@@ -790,9 +802,9 @@
                         color: ['#ff3366', '#00f3ff', '#7fff8c', '#ffd700'][Math.floor(Math.random()*4)]
                     });
                 }
-                timeScale = 0.15; targetTimeScale = 0.15;
+                timeScale = 0.15; targetTimeScale = 0.15; _easedSpeed = 0.15;
             }
-            if(deathTimer === 160) showPostRunAnalysis();
+            if(_prevDeathTimer < 160 && deathTimer >= 160) showPostRunAnalysis();
         }
 
         function triggerMartingaleRecovery() {
@@ -2347,20 +2359,35 @@
             ctx.shadowBlur = 0;
         }
 
-        function loop() {
+        function loop(rafTs) {
             if (!isPlaying) return;
 
+            // --- Frame-rate independence (delta-time normalization, baseline = 60fps) ---
+            // requestAnimationFrame fires at whatever rate the display refreshes (60/120/144Hz,
+            // or fluctuating under load). Without this correction, every "* timeScale" multiplication
+            // throughout the codebase below would silently advance MORE per real-world second on a
+            // high-refresh display (and less on a slow one) — i.e. the entire game would run at a
+            // different effective speed depending on hardware. Folding the ratio into timeScale's
+            // stored value corrects every downstream consumer automatically, with no changes needed
+            // anywhere else. Clamped to guard against huge single-frame jumps after a tab-switch
+            // or other stall (so the game "lags" rather than visibly teleports/skips).
+            if (typeof rafTs !== 'number') rafTs = performance.now();
+            let _frameMs = (_lastFrameTs != null) ? (rafTs - _lastFrameTs) : (1000/60);
+            _lastFrameTs = rafTs;
+            _dt = Math.min(Math.max(_frameMs, 0) / (1000/60), 3);
+
             if (isRecovering) {
-                recoveryTimer--;
-                if(recoveryTimer % 5 === 0) spawnParticle(player.x, player.y, '#ffd700', (Math.random()-0.5)*10, (Math.random()-0.5)*10, 2, 30);
+                recoveryTimer -= _dt;
+                if(Math.floor(recoveryTimer) % 5 === 0) spawnParticle(player.x, player.y, '#ffd700', (Math.random()-0.5)*10, (Math.random()-0.5)*10, 2, 30);
                 if (recoveryTimer <= 0) {
-                    isRecovering = false; targetTimeScale = 1.0; timeScale = 1.0;
+                    isRecovering = false; targetTimeScale = 1.0; timeScale = 1.0; _easedSpeed = 1.0;
                     player.vy = 0;
                 }
             } else if (isDead) {
                 handleDeathFrames();
             } else {
-                timeScale += (targetTimeScale - timeScale) * 0.1;
+                _easedSpeed += (targetTimeScale - _easedSpeed) * 0.1 * _dt;
+                timeScale = _easedSpeed * _dt;
                 if (timeScale > 0.01 && !isIntro) {
                     frameCount++; activeFrameCount += timeScale;
                     if (hasStarted) {
@@ -2368,7 +2395,7 @@
                         survivalFrames += timeScale;
                     }
                 } else if (isIntro) {
-                    activeFrameCount += 1; 
+                    activeFrameCount += _dt; 
                 }
                 updatePhysics(); updateEnvironment(); 
             }
@@ -2398,7 +2425,7 @@
             player.x = width * 0.3; player.y = height / 2; player.vy = 0; player.trail = []; player.visualPulse = 0; player.visualStoch = 0; player.hasShield = false; player.hasRevive = false;
             mu = 0; driftCharge = 0; sigma = 2; baseSigma = 2; dW = 0; activeShock = 0;
             score = 0; displayScore = 0; lastMilestone = 0; distance = 0; scoreMultiplier = 1.0;
-            frameCount = 0; activeFrameCount = 0; survivalFrames = 0; hasStarted = false; scrollSpeed = 8; timeScale = 1.0; targetTimeScale = 1.0; isPaused = false; isDead = false; deathTimer = 0;
+            frameCount = 0; activeFrameCount = 0; survivalFrames = 0; hasStarted = false; scrollSpeed = 8; timeScale = 1.0; targetTimeScale = 1.0; _easedSpeed = 1.0; _lastFrameTs = null; isPaused = false; isDead = false; deathTimer = 0;
             driftBucketCounts = { '-5':0,'-4':0,'-3':0,'-2':0,'-1':0,'0':0,'1':0,'2':0,'3':0,'4':0,'5':0 };
             isRecovering = false; recoveryTimer = 0;
             autoFireTimer = 0; activePowerup = null; powerupTimer = 0; powerupDisplay.style.opacity = 0;
