@@ -846,6 +846,9 @@
 </head>
 
 <body>
+	
+    <audio id="theme-audio" src="./ost/Stochastic Theme.mp3" loop></audio>
+    <audio id="select-audio" src="./ost/Stochastic Select.mp4" preload="auto"></audio>
 
     <div id="cinematic-intro">
 
@@ -1504,39 +1507,38 @@ at(15300, () => {
     }
 
     // --- GLOBAL AUDIO CONTROLLER ---
-    // Moved OUTSIDE the intro block so it always works
-    const themeAudio = document.getElementById('theme-audio');
-    const selectAudio = document.getElementById('select-audio');
+        const themeAudio = document.getElementById('theme-audio');
+        const selectAudio = document.getElementById('select-audio');
 
-    // 1. Background Music Continuity
-    const savedTime = sessionStorage.getItem('stochastic_theme_time');
-    
-    // If the intro is skipped (user navigated back), play music immediately
-    if (document.documentElement.classList.contains('skip-intro')) {
-        if (savedTime !== null) themeAudio.currentTime = parseFloat(savedTime);
-        themeAudio.volume = 1;
-        themeAudio.play().catch(() => {
-            window.addEventListener('click', () => themeAudio.play(), { once: true });
+        // 1. Background Music Continuity
+        const savedTime = sessionStorage.getItem('stochastic_theme_time');
+        
+        // If the intro is skipped (user navigated back), play music immediately
+        if (document.documentElement.classList.contains('skip-intro')) {
+            if (savedTime !== null) themeAudio.currentTime = parseFloat(savedTime);
+            themeAudio.volume = 1;
+            themeAudio.play().catch(() => {
+                window.addEventListener('click', () => themeAudio.play(), { once: true });
+            });
+        } else {
+            // If intro is playing, start music muted in the background to sync it up, 
+            // it will be faded in when the intro finishes.
+            themeAudio.volume = 0;
+            themeAudio.play().catch(()=>{});
+        }
+
+        // Save timestamp before leaving the page
+        window.addEventListener('beforeunload', () => {
+            sessionStorage.setItem('stochastic_theme_time', themeAudio.currentTime);
         });
-    } else {
-        // If intro is playing, start music muted in the background to sync it up, 
-        // it will be faded in when the intro finishes.
-        themeAudio.volume = 0;
-        themeAudio.play().catch(()=>{});
-    }
 
-    // Save timestamp before leaving the page
-    window.addEventListener('beforeunload', () => {
-        sessionStorage.setItem('stochastic_theme_time', themeAudio.currentTime);
-    });
-
-    // 2. Button Select SFX
-    document.querySelectorAll('button, .menu-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            selectAudio.currentTime = 0; // Reset to allow rapid clicking
-            selectAudio.play().catch(()=>{});
+        // 2. Button Select SFX
+        document.querySelectorAll('button, .menu-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                selectAudio.currentTime = 0; // Reset to allow rapid clicking
+                selectAudio.play().catch(()=>{});
+            });
         });
-    });
 
     </script>
 
