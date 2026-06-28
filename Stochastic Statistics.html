@@ -118,21 +118,11 @@
         /* --- MAIN CHART (CENTER TOP) --- */
         .chart { grid-area: chart; }
         .chart-wrapper { flex-grow: 1; position: relative; width: 100%; height: 100%; }
-        #volatility-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
         .chart-overlay { position: absolute; top: 10px; right: 10px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-cyan); text-align: right;}
 
-        /* --- DRIFT DISTRIBUTION (CENTER BOTTOM) --- */
+        /* --- MARKOV DISTRIBUTION (CENTER BOTTOM) --- */
         .distribution { grid-area: distribution; }
-        .dist-container { display: flex; align-items: flex-end; justify-content: space-between; height: 100%; padding-top: 20px; gap: 5px; }
-        .dist-bar-group { display: flex; flex-direction: column; align-items: center; flex: 1; }
-        .dist-bar {
-            width: 100%; background: rgba(0,243,255,0.2); border-top: 2px solid var(--accent-cyan);
-            transition: height 1s cubic-bezier(0.1, 0.9, 0.2, 1); height: 0%;
-            position: relative;
-        }
-        .dist-bar:hover { background: rgba(127,255,140,0.4); border-color: var(--accent-green); box-shadow: 0 0 15px var(--accent-green); }
-        .dist-label { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); margin-top: 10px; }
-        .dist-bar-group.center .dist-bar { background: rgba(127,255,140,0.2); border-color: var(--accent-green); }
 
         /* --- MATHEMATICAL GROWTH (RIGHT) --- */
         .growth { grid-area: growth; }
@@ -159,6 +149,9 @@
 </head>
 <body>
 
+    <audio id="theme-audio" src="./ost/Stochastic Theme.mp3" loop></audio>
+    <audio id="select-audio" src="./ost/Stochastic Select.mp4" preload="auto"></audio>
+
     <div id="noise-overlay"></div>
     <div class="perspective-grid"></div>
 
@@ -172,7 +165,7 @@
             <div class="header-meta">
                 <div><span class="status-dot"></span> LIVE DATA LINK</div>
                 <div style="color: var(--text-dim); margin-top: 5px;">SESSION ID: <span id="session-id" style="color:#fff;">0x7A9F3B</span></div>
-                <button class="btn-return" onclick="window.location.href='index Sde.html'">Return to Terminal</button>
+                <button class="btn-return" id="btn-return">Return to Terminal</button>
             </div>
         </header>
 
@@ -217,9 +210,10 @@
         </section>
 
         <section class="panel distribution">
-            <div class="panel-title">Drift Usage Distribution <span>[μ PARAMETER]</span></div>
-            <div class="dist-container" id="dist-chart">
-                </div>
+            <div class="panel-title">Predictive Next Run Probabilities <span>[MARKOV CHAIN]</span></div>
+            <div class="chart-wrapper">
+                <canvas id="markov-canvas"></canvas>
+            </div>
         </section>
 
         <section class="panel growth">
@@ -231,6 +225,28 @@
     </div>
 
     <script>
+        // --- AUDIO CONTROLLER ---
+        document.addEventListener('click', function initAudio() {
+            const theme = document.getElementById('theme-audio');
+            if (theme.paused) {
+                theme.volume = 0.4;
+                theme.play().catch(e => console.log("Theme audio prevented by browser", e));
+            }
+            document.removeEventListener('click', initAudio);
+        }, { once: true });
+
+        document.getElementById('btn-return').addEventListener('click', function(e) {
+            e.preventDefault();
+            const selectSound = document.getElementById('select-audio');
+            selectSound.volume = 0.8;
+            selectSound.play().catch(e => console.log("Select audio error", e));
+            
+            // Add a small delay so the sound plays before navigation
+            setTimeout(() => {
+                window.location.href = 'index Sde.html';
+            }, 300);
+        });
+
         // --- 1. LOAD LIVE DATA FROM LOCAL STORAGE ---
         function loadLiveStats() {
             document.getElementById('session-id').innerText = "0x" + Math.floor(Math.random()*16777215).toString(16).toUpperCase();
@@ -294,25 +310,28 @@
         }
 
         // --- 3. LIVE VOLATILITY CANVAS CHART ---
-        const canvas = document.getElementById('volatility-canvas');
-        const ctx = canvas.getContext('2d');
+        const vCanvas = document.getElementById('volatility-canvas');
+        const vCtx = vCanvas.getContext('2d');
         let chartData = [];
         let frame = 0;
         let baseVol = parseFloat(localStorage.getItem('stochastic_avg_vol') || '2.00') / 10; 
 
-        function resizeCanvas() {
-            canvas.width = canvas.parentElement.clientWidth;
-            canvas.height = canvas.parentElement.clientHeight;
+        function resizeCanvases() {
+            vCanvas.width = vCanvas.parentElement.clientWidth;
+            vCanvas.height = vCanvas.parentElement.clientHeight;
+            
+            const mCanvas = document.getElementById('markov-canvas');
+            mCanvas.width = mCanvas.parentElement.clientWidth;
+            mCanvas.height = mCanvas.parentElement.clientHeight;
         }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
+        window.addEventListener('resize', resizeCanvases);
 
         function initChartData() {
             for(let i=0; i<100; i++) chartData.push(baseVol + (Math.random() * 0.1 - 0.05));
         }
 
         function drawChart() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            vCtx.clearRect(0, 0, vCanvas.width, vCanvas.height);
             frame++;
 
             if (frame % 2 === 0) {
@@ -330,66 +349,136 @@
                 document.getElementById('chart-min').innerText = (Math.min(...chartData) * 10).toFixed(1);
             }
 
-            ctx.strokeStyle = 'rgba(0, 243, 255, 0.05)';
-            ctx.lineWidth = 1;
-            for(let i=0; i<canvas.height; i+=30) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke(); }
-            for(let i=0; i<canvas.width; i+=50) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke(); }
+            vCtx.strokeStyle = 'rgba(0, 243, 255, 0.05)';
+            vCtx.lineWidth = 1;
+            for(let i=0; i<vCanvas.height; i+=30) { vCtx.beginPath(); vCtx.moveTo(0, i); vCtx.lineTo(vCanvas.width, i); vCtx.stroke(); }
+            for(let i=0; i<vCanvas.width; i+=50) { vCtx.beginPath(); vCtx.moveTo(i, 0); vCtx.lineTo(i, vCanvas.height); vCtx.stroke(); }
 
-            ctx.beginPath();
-            const step = canvas.width / (chartData.length - 1);
-            ctx.moveTo(0, canvas.height - (chartData[0] * canvas.height));
+            vCtx.beginPath();
+            const step = vCanvas.width / (chartData.length - 1);
+            vCtx.moveTo(0, vCanvas.height - (chartData[0] * vCanvas.height));
             
             for (let i = 1; i < chartData.length; i++) {
-                ctx.lineTo(i * step, canvas.height - (chartData[i] * canvas.height));
+                vCtx.lineTo(i * step, vCanvas.height - (chartData[i] * vCanvas.height));
             }
 
-            ctx.strokeStyle = '#00f3ff';
-            ctx.lineWidth = 2;
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = '#00f3ff';
-            ctx.stroke();
+            vCtx.strokeStyle = '#00f3ff';
+            vCtx.lineWidth = 2;
+            vCtx.shadowBlur = 10;
+            vCtx.shadowColor = '#00f3ff';
+            vCtx.stroke();
 
-            ctx.lineTo(canvas.width, canvas.height);
-            ctx.lineTo(0, canvas.height);
-            ctx.closePath();
+            vCtx.lineTo(vCanvas.width, vCanvas.height);
+            vCtx.lineTo(0, vCanvas.height);
+            vCtx.closePath();
             
-            let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            let grad = vCtx.createLinearGradient(0, 0, 0, vCanvas.height);
             grad.addColorStop(0, 'rgba(0, 243, 255, 0.2)');
             grad.addColorStop(1, 'rgba(0, 243, 255, 0)');
-            ctx.fillStyle = grad;
-            ctx.fill();
+            vCtx.fillStyle = grad;
+            vCtx.fill();
 
-            ctx.shadowBlur = 0;
+            vCtx.shadowBlur = 0;
             requestAnimationFrame(drawChart);
         }
 
-        // --- 4. DRIFT DISTRIBUTION CHART (CSS Bars) ---
-        function initDistributionChart() {
-            const container = document.getElementById('dist-chart');
-            const labels = ["-5", "-4", "-3", "-2", "-1", "0", "+1", "+2", "+3", "+4", "+5"];
-	    let data = labels.map(l => parseInt(localStorage.getItem('drift_usage_' + l) || 0));
+        // --- 4. PREDICTIVE MARKOV CHAIN CANVAS ---
+        function initMarkovChain() {
+            const mCanvas = document.getElementById('markov-canvas');
+            const mCtx = mCanvas.getContext('2d');
             
-            // Find max for scaling
-            let maxVal = Math.max(...data, 1);
+            // Gather existing drift data to simulate transition probabilities
+            let negDrift = 0, zeroDrift = 0, posDrift = 0;
+            ["-5","-4","-3","-2","-1"].forEach(l => negDrift += parseInt(localStorage.getItem('drift_usage_' + l) || 1));
+            zeroDrift = parseInt(localStorage.getItem('drift_usage_0') || 1);
+            ["+1","+2","+3","+4","+5"].forEach(l => posDrift += parseInt(localStorage.getItem('drift_usage_' + l) || 1));
+            
+            const total = negDrift + zeroDrift + posDrift;
+            
+            // Calculate pseudo-transition probabilities based on run distribution weight
+            const pNeg = Math.max(0.1, negDrift / total);
+            const pZero = Math.max(0.1, zeroDrift / total);
+            const pPos = Math.max(0.1, posDrift / total);
+            
+            const nodes = [
+                { id: "Neg (-)", x: 0.2, y: 0.5, prob: pNeg, color: "var(--accent-red)" },
+                { id: "Neutral (0)", x: 0.5, y: 0.5, prob: pZero, color: "var(--text-main)" },
+                { id: "Pos (+)", x: 0.8, y: 0.5, prob: pPos, color: "var(--accent-green)" }
+            ];
 
-            data.forEach((val, i) => {
-		let heightPercent = (val / maxVal) * 100;
-                const group = document.createElement('div');
-                group.className = `dist-bar-group ${labels[i] === "0" ? "center" : ""}`;
+            function drawMarkov() {
+                mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
                 
-                const bar = document.createElement('div');
-                bar.className = 'dist-bar';
-                
-                const label = document.createElement('div');
-                label.className = 'dist-label';
-                label.innerText = labels[i];
+                const w = mCanvas.width;
+                const h = mCanvas.height;
+                const radius = 25;
 
-                group.appendChild(bar);
-                group.appendChild(label);
-                container.appendChild(group);
+                // Draw Edges (Transitions)
+                mCtx.lineWidth = 2;
+                mCtx.font = "12px var(--font-mono)";
+                mCtx.textAlign = "center";
+                mCtx.textBaseline = "middle";
 
-                setTimeout(() => { bar.style.height = val + "%"; }, 500 + (i * 50));
-            });
+                nodes.forEach((n1, i) => {
+                    nodes.forEach((n2, j) => {
+                        if (i === j) return; // Skip self-loops for cleanliness
+                        
+                        mCtx.beginPath();
+                        const startX = n1.x * w;
+                        const startY = n1.y * h;
+                        const endX = n2.x * w;
+                        const endY = n2.y * h;
+                        
+                        // Curve offset
+                        const midX = (startX + endX) / 2;
+                        const midY = (startY + endY) / 2 - (i > j ? 30 : -30);
+
+                        mCtx.moveTo(startX, startY);
+                        mCtx.quadraticCurveTo(midX, midY, endX, endY);
+                        
+                        // Calculate probability string (simulated Markov step)
+                        let transProb = (n2.prob * 100).toFixed(1) + "%";
+                        
+                        mCtx.strokeStyle = "rgba(0, 243, 255, 0.3)";
+                        mCtx.stroke();
+                        
+                        // Draw text
+                        mCtx.fillStyle = "var(--accent-cyan)";
+                        mCtx.fillText(transProb, midX, midY - (i > j ? 10 : -10));
+                    });
+                });
+
+                // Draw Nodes
+                nodes.forEach(n => {
+                    const nx = n.x * w;
+                    const ny = n.y * h;
+
+                    mCtx.beginPath();
+                    mCtx.arc(nx, ny, radius, 0, Math.PI * 2);
+                    mCtx.fillStyle = "rgba(0, 0, 0, 0.8)";
+                    mCtx.fill();
+                    
+                    mCtx.lineWidth = 3;
+                    mCtx.strokeStyle = n.color.replace('var(--','').replace(')',''); // fallback
+                    if(n.color === "var(--accent-red)") mCtx.strokeStyle = "#ff3366";
+                    if(n.color === "var(--text-main)") mCtx.strokeStyle = "#ffffff";
+                    if(n.color === "var(--accent-green)") mCtx.strokeStyle = "#7fff8c";
+                    
+                    mCtx.shadowBlur = 15;
+                    mCtx.shadowColor = mCtx.strokeStyle;
+                    mCtx.stroke();
+                    mCtx.shadowBlur = 0;
+
+                    // Text
+                    mCtx.fillStyle = "#fff";
+                    mCtx.font = "10px var(--font-display)";
+                    mCtx.fillText(n.id, nx, ny + radius + 15);
+                });
+            }
+            
+            drawMarkov();
+            // Re-draw on resize
+            window.addEventListener('resize', drawMarkov);
         }
 
         // --- 5. LIVE MATHEMATICAL GROWTH GAUGES ---
@@ -444,11 +533,12 @@
 
         // --- INIT ALL ---
         window.onload = () => {
+            resizeCanvases();
             loadLiveStats();
             animateCounters();
             initChartData();
             drawChart();
-            initDistributionChart();
+            initMarkovChain();
             initGrowthList();
         };
 
