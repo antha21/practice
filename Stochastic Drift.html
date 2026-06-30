@@ -52,14 +52,20 @@
 
         #vfx-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; z-index: 5; transition: all 1s ease; mix-blend-mode: overlay;
+            pointer-events: none; z-index: 5; transition: box-shadow 0.8s ease, opacity 0.8s ease; mix-blend-mode: overlay;
         }
 
-        body.boss-active #vfx-overlay { box-shadow: inset 0 0 150px rgba(255, 51, 102, 0.3); animation: boss-pulse 2s infinite alternate; }
-        body.warning-active #vfx-overlay { box-shadow: inset 0 0 200px rgba(255, 0, 0, 0.6); animation: warning-pulse 0.5s infinite alternate; }
+        body.boss-active #vfx-overlay { box-shadow: inset 0 0 150px rgba(255, 51, 102, 0.35); animation: boss-pulse 2s infinite alternate; }
+        body.warning-active #vfx-overlay { box-shadow: inset 0 0 175px rgba(255, 0, 0, 0.55); animation: warning-pulse 0.5s infinite alternate; }
 
-        @keyframes boss-pulse { 0% { box-shadow: inset 0 0 100px rgba(255, 51, 102, 0.2); } 100% { box-shadow: inset 0 0 200px rgba(255, 51, 102, 0.5); } }
-        @keyframes warning-pulse { 0% { box-shadow: inset 0 0 100px rgba(255, 0, 0, 0.3); } 100% { box-shadow: inset 0 0 250px rgba(255, 0, 0, 0.8); } }
+        /* These now pulse opacity instead of animating the box-shadow's blur radius/spread directly —
+           animating box-shadow forces the browser to fully re-rasterize the blurred shape on every
+           single animation frame (expensive, CPU-bound, not GPU-compositable), whereas opacity is
+           one of the cheapest properties to animate (handled entirely by the compositor). The
+           box-shadow itself is now fixed at a representative intensity; only the overlay's opacity
+           breathes, producing the same pulsing-glow feel for a fraction of the rendering cost. */
+        @keyframes boss-pulse { 0% { opacity: 0.65; } 100% { opacity: 1; } }
+        @keyframes warning-pulse { 0% { opacity: 0.55; } 100% { opacity: 1; } }
 
         /* --- INTRO SEQUENCE --- */
         #intro-sequence {
@@ -126,8 +132,8 @@
         .equation-hud {
             font-family: "Times New Roman", serif; font-style: italic; font-size: 2.5rem;
             color: rgba(255, 255, 255, 0.4); letter-spacing: 0.05em;
-            background: rgba(0, 0, 0, 0.4); padding: 10px 30px; border-radius: 50px;
-            border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(5px); 
+            background: rgba(0, 0, 0, 0.72); padding: 10px 30px; border-radius: 50px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
             transition: border-color 0.5s, box-shadow 0.5s, transform 0.3s, opacity 0.7s ease, filter 0.7s ease;
             white-space: nowrap; display: flex; align-items: center; justify-content: center;
         }
@@ -216,14 +222,14 @@
 
         /* Holographic Achievements */
         #achievement-container { position: absolute; bottom: 80px; right: 30px; z-index: 40; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-        .achieve-card { background: rgba(6, 8, 32, 0.9); border-left: 4px solid var(--accent-gold); border-top: 1px solid rgba(255,215,0,0.3); border-bottom: 1px solid rgba(255,215,0,0.3); border-right: 1px solid rgba(255,215,0,0.3); padding: 15px 25px; border-radius: 4px; display: flex; align-items: center; gap: 15px; box-shadow: -10px 0 20px rgba(255, 215, 0, 0.1), inset 0 0 20px rgba(255,215,0,0.05); transform: translateX(120%); opacity: 0; filter: blur(5px); transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter: blur(10px); }
+        .achieve-card { background: rgba(6, 8, 32, 0.95); border-left: 4px solid var(--accent-gold); border-top: 1px solid rgba(255,215,0,0.3); border-bottom: 1px solid rgba(255,215,0,0.3); border-right: 1px solid rgba(255,215,0,0.3); padding: 15px 25px; border-radius: 4px; display: flex; align-items: center; gap: 15px; box-shadow: -10px 0 20px rgba(255, 215, 0, 0.1), inset 0 0 20px rgba(255,215,0,0.05); transform: translateX(120%); opacity: 0; filter: blur(5px); transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); will-change: transform, opacity, filter; }
         .achieve-card.show { transform: translateX(0); opacity: 1; filter: blur(0); }
         .achieve-icon { font-size: 2rem; color: var(--accent-gold); font-family: "Times New Roman", serif; font-style: italic; }
         .achieve-text h4 { font-family: var(--font-display); font-size: 1rem; color: #fff; margin: 0; letter-spacing: 0.1em; }
         .achieve-text p { font-family: var(--font-ui); font-size: 0.8rem; color: var(--accent-gold); margin: 0; letter-spacing: 0.1em; text-transform: uppercase; }
 
         /* Pause & Post-Run Analysis */
-        #pause-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(3, 4, 18, 0.7); backdrop-filter: blur(8px); display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; z-index: 60; }
+        #pause-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(3, 4, 18, 0.82); display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; z-index: 60; will-change: opacity; }
         #pause-overlay.active { opacity: 1; pointer-events: all; }
         #pause-overlay h2 { font-family: var(--font-display); font-size: 4rem; color: var(--theme-secondary); text-shadow: 0 0 20px var(--theme-secondary); letter-spacing: 0.3em; margin-bottom: 10px; }
         
@@ -231,10 +237,9 @@
         
         #post-run-analysis {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(3, 4, 18, 0.95); display: flex; flex-direction: column;
+            background: rgba(3, 4, 18, 0.97); display: flex; flex-direction: column;
             align-items: center; justify-content: center; z-index: 50; opacity: 0;
-            pointer-events: none; transition: opacity 1s ease;
-            backdrop-filter: blur(15px);
+            pointer-events: none; transition: opacity 1s ease; will-change: opacity;
         }
         #post-run-analysis.active { opacity: 1; pointer-events: all; }
         
@@ -333,7 +338,7 @@
     <canvas id="game-canvas"></canvas>
 
     <script>
-        const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d');
+        const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d', { alpha: false });
         let width, height; function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
         // Setting canvas.width/height clears the entire bitmap to transparent immediately. If the
         // browser composites a frame before the next natural rAF tick repaints it, the page's
@@ -470,6 +475,13 @@
         // exact names. Volume is driven by the Settings page's saved Master/Music/Effects
         // sliders (the shared 'stochastic_settings' localStorage key) — re-read on focus so
         // changes made there take effect without needing to reload the game.
+        //
+        // Loading is staggered across the intro sequence (see runIntroSequence/preloadAllAudio)
+        // rather than created all at once — creating dozens of Audio objects synchronously in a
+        // single burst at page load competes with canvas/GPU initialization for the same frame
+        // and is a likely contributor to occasional blank/white-flash frames on some hardware.
+        // Each sound starts with exactly one Audio instance; a small pool only grows lazily, and
+        // only for sounds that actually overlap with themselves during real play.
         // ============================================================
         const AUDIO_SRC = {
             select:         'ost/Stochastic Select.mp4',
@@ -487,10 +499,11 @@
             music:          'ost/Stochastic Music.mp3',
             boss:           'ost/Stochastic Boss.mp3'
         };
-        const SFX_POOL_SIZE = 5; // lets rapid/overlapping triggers (e.g. laser fire) play simultaneously
+        const SFX_POOL_MAX = 4; // lazy ceiling — most sounds never actually need more than 1-2
         const sfxPools = {};
         let musicEl = null, bossMusicEl = null, musicStarted = false, bossMusicActive = false;
         let audioSettings = { volMaster: 80, volMusic: 60, volSfx: 100 };
+        let audioPreloadStarted = false;
 
         function sfxVolume() { return (audioSettings.volMaster/100) * (audioSettings.volSfx/100); }
         function musicVolume() { return (audioSettings.volMaster/100) * (audioSettings.volMusic/100); }
@@ -510,22 +523,28 @@
             } catch(e) {}
         }
 
-        function initAudioSystem() {
-            Object.keys(AUDIO_SRC).forEach(key => {
-                if (key === 'music' || key === 'boss') return;
-                let pool = [];
-                for (let i = 0; i < SFX_POOL_SIZE; i++) {
-                    let a = new Audio(AUDIO_SRC[key]);
-                    a.preload = 'auto';
-                    pool.push(a);
-                }
-                sfxPools[key] = { pool, idx: 0 };
-            });
-            musicEl = new Audio(AUDIO_SRC.music); musicEl.loop = true; musicEl.preload = 'auto';
-            bossMusicEl = new Audio(AUDIO_SRC.boss); bossMusicEl.loop = true; bossMusicEl.preload = 'auto';
-            loadAudioSettings();
+        function makeAudio(src) { let a = new Audio(src); a.preload = 'auto'; return a; }
+
+        function preloadAudioKey(key) {
+            if (key === 'music') { musicEl = makeAudio(AUDIO_SRC.music); musicEl.loop = true; return; }
+            if (key === 'boss') { bossMusicEl = makeAudio(AUDIO_SRC.boss); bossMusicEl.loop = true; return; }
+            sfxPools[key] = { pool: [makeAudio(AUDIO_SRC[key])], idx: 0 };
         }
-        initAudioSystem();
+
+        // Spreads the 14 asset loads out in small steps across the intro's runtime rather than
+        // firing them all in the same tick — see the note above for why.
+        function preloadAllAudio(onDone) {
+            if (audioPreloadStarted) { if (onDone) onDone(); return; }
+            audioPreloadStarted = true;
+            const keys = Object.keys(AUDIO_SRC);
+            let i = 0;
+            function next() {
+                if (i >= keys.length) { loadAudioSettings(); if (onDone) onDone(); return; }
+                preloadAudioKey(keys[i]); i++;
+                setTimeout(next, 70);
+            }
+            next();
+        }
         window.addEventListener('focus', loadAudioSettings);
 
         function playSfx(key) {
@@ -533,7 +552,14 @@
             if (!entry) return;
             try {
                 let a = entry.pool[entry.idx];
-                entry.idx = (entry.idx + 1) % entry.pool.length;
+                if (!a.paused && !a.ended && entry.pool.length < SFX_POOL_MAX) {
+                    a = makeAudio(AUDIO_SRC[key]);
+                    entry.pool.push(a);
+                    entry.idx = entry.pool.length - 1;
+                } else {
+                    entry.idx = (entry.idx + 1) % entry.pool.length;
+                    a = entry.pool[entry.idx];
+                }
                 a.pause(); a.currentTime = 0;
                 a.volume = sfxVolume();
                 a.play().catch(() => {});
@@ -632,6 +658,7 @@
 
         const uiEq = document.getElementById('ui-eq'), fillDrift = document.getElementById('fill-drift'), fillVol = document.getElementById('fill-volatility'), txtDrift = document.getElementById('txt-drift'), txtVol = document.getElementById('txt-vol');
         const uiScore = document.getElementById('ui-score'), uiDist = document.getElementById('ui-dist'), multDisp = document.getElementById('multiplier-display'), reviveInd = document.getElementById('revive-indicator');
+        const uiTotalScore = document.getElementById('ui-total-score');
         const dmgOverlay = document.getElementById('damage-overlay'), popupContainer = document.getElementById('popup-container'), phaseIndicator = document.getElementById('phase-indicator'), pauseOverlay = document.getElementById('pause-overlay'), hudContainer = document.getElementById('main-hud');
         const powerupDisplay = document.getElementById('powerup-display'), postRunAnalysis = document.getElementById('post-run-analysis'), introSeq = document.getElementById('intro-sequence');
         const transformContainer = document.getElementById('transform-timer-container'), transformBar = document.getElementById('transform-timer-bar');
@@ -643,7 +670,7 @@
         // --- INPUT & PAUSE ---
         window.addEventListener('keydown', (e) => { if(e.code === 'Space') isSpaceDown = true; if(e.code === 'Escape' || e.code === 'KeyP') togglePause(); });
         window.addEventListener('keyup', (e) => { if(e.code === 'Space') isSpaceDown = false; });
-        window.addEventListener('touchstart', () => { isSpaceDown = true; }); 	window.addEventListener('touchend', () => { isSpaceDown = false; });
+        window.addEventListener('touchstart', () => { isSpaceDown = true; }, { passive: true }); 	window.addEventListener('touchend', () => { isSpaceDown = false; }, { passive: true });
 
         function togglePause() {
             if(!isPlaying || isDead || isIntro || isRecovering) return; isPaused = !isPaused;
@@ -677,6 +704,7 @@
         }
 
         function spawnFloatingText(x, y, text, color) {
+            if (document.querySelectorAll('.floating-text').length > 40) return;
             const el = document.createElement('div'); el.className = 'floating-text'; el.innerText = text; el.style.color = color;
             el.style.left = x + 'px'; el.style.top = y + 'px'; document.body.appendChild(el); setTimeout(() => el.remove(), 1000);
         }
@@ -997,6 +1025,18 @@
             if(!inItoRealm && !Director.stormActive) envRules.bgColor = envRules.theme.bg;
         }
 
+        // Returns true if (testX, testY) is clear of every item in arr by at least `clearance`,
+        // using squared-distance comparisons (no sqrt) and no intermediate array allocation.
+        function checkClearAgainst(arr, testX, testY, clearance) {
+            for (let i = 0; i < arr.length; i++) {
+                let item = arr[i];
+                let dx = testX - item.x, dy = testY - item.y;
+                let r = (item.radius || 30) + clearance;
+                if (dx*dx + dy*dy < r*r) return false;
+            }
+            return true;
+        }
+
         function getSafeSpawnPos(baseX, ownRadius = 20, buffer = 50) {
             let safeX = baseX;
             for (let attempt = 0; attempt < 60; attempt++) {
@@ -1013,7 +1053,8 @@
                         if (hitDistX < (s.w/2 + clearance) && hitDistY < (s.h + clearance)) { isSafe = false; break; }
                     } else if (s.type === 'cloud') {
                         let dx = testX - s.x, dy = testY - s.y;
-                        if (Math.sqrt(dx*dx + dy*dy) < (s.radius + clearance)) { isSafe = false; break; }
+                        let cr = s.radius + clearance;
+                        if (dx*dx + dy*dy < cr*cr) { isSafe = false; break; }
                     } else if (s.type === 'barrier') {
                         let hitDistX = Math.abs(testX - s.x), hitDistY = Math.abs(testY - s.y);
                         if (hitDistX < (s.w/2 + clearance) && hitDistY < (s.h/2 + clearance)) { isSafe = false; break; }
@@ -1021,26 +1062,29 @@
                 }
                 if (!isSafe) { safeX += 150; continue; }
 
-                // 2. Every other collectible/portal already in the world — never let two stack
-                const allItems = [...powerupItems, ...portals, ...knowledgeNodes, ...scoreOrbs];
-                for (let item of allItems) {
-                    let dx = testX - item.x, dy = testY - item.y;
-                    let itemRad = item.radius || 30;
-                    if (Math.sqrt(dx*dx + dy*dy) < (itemRad + clearance)) { isSafe = false; break; }
-                }
+                // 2. Every other collectible/portal already in the world — never let two stack.
+                // Iterates the four source arrays directly rather than building a fresh merged
+                // array (a hidden allocation that previously happened on every one of up to 60
+                // attempts per spawn call).
+                isSafe = checkClearAgainst(powerupItems, testX, testY, clearance)
+                      && checkClearAgainst(portals, testX, testY, clearance)
+                      && checkClearAgainst(knowledgeNodes, testX, testY, clearance)
+                      && checkClearAgainst(scoreOrbs, testX, testY, clearance);
                 if (!isSafe) { safeX += 150; continue; }
 
                 // 3. Active boss hitbox
                 if (activeBoss) {
                     let dx = testX - activeBoss.x, dy = testY - activeBoss.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < (160 + clearance)) isSafe = false;
+                    let br = 160 + clearance;
+                    if (dx*dx + dy*dy < br*br) isSafe = false;
                 }
                 if (!isSafe) { safeX += 150; continue; }
 
                 // 4. Projectiles currently in flight near the spawn zone
                 for (let ep of enemyProjectiles) {
                     let dx = testX - ep.x, dy = testY - ep.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < ((ep.radius || 20) + clearance)) { isSafe = false; break; }
+                    let er = (ep.radius || 20) + clearance;
+                    if (dx*dx + dy*dy < er*er) { isSafe = false; break; }
                 }
                 if (!isSafe) { safeX += 150; continue; }
 
@@ -1151,13 +1195,74 @@
             portals.push({ x: pos.x, y: pos.y, radius: 60, type: types[Math.floor(Math.random()*types.length)], active: true }); 
         }
         
+        // Cached gradient/style objects for the draw() hot path — these are read every frame so
+        // creating them freshly each call (60+ times per second) is pure waste. They are recreated
+        // only on resize, the only event that actually changes their inputs.
+        let _horizonGrad = null, _horizonGradHeight = -1;
+        function getHorizonGrad() {
+            if (_horizonGradHeight !== height) {
+                _horizonGrad = ctx.createLinearGradient(0, height/2 - 200, 0, height/2 + 200);
+                _horizonGrad.addColorStop(0, 'rgba(0,0,0,0)');
+                _horizonGrad.addColorStop(0.5, 'rgba(255,255,255,0.03)');
+                _horizonGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                _horizonGradHeight = height;
+            }
+            return _horizonGrad;
+        }
+        // instead of being discarded, so the highest-frequency allocation site in the game
+        // (explosions, sparks, trails) doesn't generate fresh garbage on every call. Pre-warmed
+        // during the preload phase (see warmObjectPools) so the very first explosion in a run
+        // doesn't need to allocate anything either.
+        let _particlePool = [];
         function spawnParticle(x, y, color, speedX, speedY, size, life, type='normal') { 
-		particles.push({x, y, color, speedX, speedY, size, life, maxLife: life, type: type});
-		if (particles.length > 300) particles.splice(0, particles.length - 300);
+		let p = _particlePool.pop();
+		if (p) {
+		    p.x=x; p.y=y; p.color=color; p.speedX=speedX; p.speedY=speedY; p.size=size; p.life=life; p.maxLife=life; p.type=type; p.text=undefined;
+		} else {
+		    p = {x, y, color, speedX, speedY, size, life, maxLife: life, type: type};
+		}
+		particles.push(p);
+		if (particles.length > 300) {
+		    let removed = particles.splice(0, particles.length - 300);
+		    for (let i=0; i<removed.length; i++) if (_particlePool.length < 300) _particlePool.push(removed[i]);
+		}
 	}
         
         function triggerScreenShake(amount) { screenShake = amount; }
-        function triggerExplosion(x, y, color, amount=30) { for(let i=0; i<amount; i++) spawnParticle(x, y, color, (Math.random()-0.5)*15, (Math.random()-0.5)*15, Math.random()*4+2, 60); }
+
+        // ============================================================
+        // ADAPTIVE PERFORMANCE SYSTEM
+        // Monitors real wall-clock frame time (sampled in loop(), independent of the gameplay
+        // dt/timeScale values, which are clamped and eased and therefore not a reliable signal
+        // of actual hardware headroom) on a rolling 2-second window. If frame time stays
+        // elevated, visual density is reduced one notch at a time; if it stays comfortably low,
+        // quality is restored one notch at a time. Only cosmetic, purely-decorative systems are
+        // affected — particle burst density and the number of background wave-field layers drawn.
+        // Nothing here can change collision outcomes, timing, scoring, AI, or physics, since none
+        // of those systems read these values.
+        // ============================================================
+        const PERF_TIERS = [
+            { particleMult: 0.42, waveLayers: 1 },  // tier 0: low-end hardware
+            { particleMult: 0.70, waveLayers: 2 },  // tier 1: mid-range
+            { particleMult: 1.00, waveLayers: 3 }   // tier 2: full quality (default/start)
+        ];
+        let perfTier = 2;
+        let _perfAccumMs = 0, _perfFrames = 0, _perfHoldFrames = 0;
+        function adaptivePerfSample(realFrameMs) {
+            _perfAccumMs += realFrameMs; _perfFrames++;
+            if (_perfHoldFrames > 0) _perfHoldFrames--;
+            if (_perfAccumMs < 2000) return;
+            let avgMs = _perfAccumMs / Math.max(1, _perfFrames);
+            _perfAccumMs = 0; _perfFrames = 0;
+            if (_perfHoldFrames > 0) return; // brief cooldown after any tier change to avoid oscillation
+            if (avgMs > 1000/40 && perfTier > 0) { perfTier--; _perfHoldFrames = 3; }
+            else if (avgMs < 1000/56 && perfTier < 2) { perfTier++; _perfHoldFrames = 3; }
+        }
+
+        function triggerExplosion(x, y, color, amount=30) {
+            let n = Math.max(4, Math.round(amount * PERF_TIERS[perfTier].particleMult));
+            for(let i=0; i<n; i++) spawnParticle(x, y, color, (Math.random()-0.5)*15, (Math.random()-0.5)*15, Math.random()*4+2, 60);
+        }
 
         function hexToRgb(hex) {
             hex = hex.replace('#', '');
@@ -1609,10 +1714,9 @@
 
                 ep.x += ep.vx * timeScale; ep.y += ep.vy * timeScale;
                 let dx = player.x - ep.x, dy = player.y - ep.y;
-                
-                if (Math.sqrt(dx*dx + dy*dy) < ep.radius + player.size) { 
+                let _epCR = ep.radius + player.size;
+                if (dx*dx + dy*dy < _epCR*_epCR) { 
                     if (processType === 'squared') {
-                        // QUADRATIC EXPANSION: Destroy projectile, gain score
                         triggerExplosion(ep.x, ep.y, '#ffd700', 15);
                         score += 300 * scoreMultiplier;
                         spawnFloatingText(ep.x, ep.y, `+${300 * Math.floor(scoreMultiplier)}`, '#ffd700');
@@ -1642,9 +1746,11 @@
                 } 
                 else if (s.type === 'cloud') {
                     s.rotation += 0.05 * timeScale;
-                    let dx = player.x - s.x, dy = player.y - s.y; distToPlayer = Math.sqrt(dx*dx + dy*dy);
-                    if (distToPlayer < s.radius + player.size - 10) hit = true;
-                    if (distToPlayer < s.radius + player.size + 40 && !hit && !s.nearMissed && player.x > s.x) { s.nearMissed = true; triggerNearMiss(); }
+                    let dx = player.x - s.x, dy = player.y - s.y; let distSq = dx*dx + dy*dy;
+                    let _cHit = s.radius + player.size - 10; let _cNear = s.radius + player.size + 40;
+                    if (distSq < _cHit*_cHit) hit = true;
+                    distToPlayer = Math.sqrt(distSq); // kept for dangerClose threshold comparison below
+                    if (distSq < _cNear*_cNear && !hit && !s.nearMissed && player.x > s.x) { s.nearMissed = true; triggerNearMiss(); }
                 }
                 else if (s.type === 'barrier') {
                     s.h += Math.sin(activeFrameCount*0.1)*5 * timeScale; let hw = s.w/2, hh = s.h/2;
@@ -1680,13 +1786,11 @@
 
             if (playerHit && timeScale > 0 && !isDead && !isRecovering) {
                 if (player.hasShield) {
-                    console.log("[DEBUG] Shield consumed.");
                     player.hasShield = false; playSfx('shieldDestroyed'); triggerExplosion(player.x, player.y, '#00f3ff', 40); triggerScreenShake(20);
                     queuePopup("BUFFER SHATTERED", "Extreme realization absorbed.", POPUP_PRIORITY.EVENT, 2200);
-                
                     for(let j=enemyProjectiles.length-1; j>=0; j--) {
                         let ddx = player.x - enemyProjectiles[j].x, ddy = player.y - enemyProjectiles[j].y;
-                        if(Math.sqrt(ddx*ddx + ddy*ddy) < 200) enemyProjectiles.splice(j, 1);
+                        if(ddx*ddx + ddy*ddy < 40000) enemyProjectiles.splice(j, 1); // 200² = 40000
                     }
                 } else if (player.hasRevive) {
                     console.log("[DEBUG] Martingale consumed.");
@@ -1725,12 +1829,13 @@
             for(let i=scoreOrbs.length-1; i>=0; i--) {
                 let orb = scoreOrbs[i];
                 if (processType === 'magnet') {
-                    let dx = player.x - orb.x, dy = player.y - orb.y; let d = Math.sqrt(dx*dx + dy*dy);
-                    if (d < 400) { orb.x += (dx/d) * 20 * timeScale; orb.y += (dy/d) * 20 * timeScale; } else { orb.x -= scrollSpeed * timeScale; }
+                    let dx = player.x - orb.x, dy = player.y - orb.y; let dSq = dx*dx + dy*dy;
+                    if (dSq < 160000) { let d = Math.sqrt(dSq); orb.x += (dx/d) * 20 * timeScale; orb.y += (dy/d) * 20 * timeScale; } else { orb.x -= scrollSpeed * timeScale; }
                 } else { orb.x -= scrollSpeed * timeScale; }
 
                 let dx = player.x - orb.x, dy = player.y - orb.y;
-                if(orb.active && Math.sqrt(dx*dx + dy*dy) < orb.radius + player.size) {
+                let _oCR = orb.radius + player.size;
+                if(orb.active && dx*dx + dy*dy < _oCR*_oCR) {
                     orb.active = false; score += 200 * scoreMultiplier; playSfx('point');
                     spawnFloatingText(orb.x, orb.y, `+${200 * Math.floor(scoreMultiplier)}`, '#ffd700');
                     scoreOrbs.splice(i, 1); continue;
@@ -1741,12 +1846,13 @@
             for(let i=knowledgeNodes.length-1; i>=0; i--) {
                 let kn = knowledgeNodes[i]; 
                 if (processType === 'magnet') {
-                    let dx = player.x - kn.x, dy = player.y - kn.y; let d = Math.sqrt(dx*dx + dy*dy);
-                    if (d < 400) { kn.x += (dx/d) * 20 * timeScale; kn.y += (dy/d) * 20 * timeScale; } else { kn.x -= scrollSpeed * timeScale; }
+                    let dx = player.x - kn.x, dy = player.y - kn.y; let dSq = dx*dx + dy*dy;
+                    if (dSq < 160000) { let d = Math.sqrt(dSq); kn.x += (dx/d) * 20 * timeScale; kn.y += (dy/d) * 20 * timeScale; } else { kn.x -= scrollSpeed * timeScale; }
                 } else { kn.x -= scrollSpeed * timeScale; }
 
                 let dx = player.x - kn.x, dy = player.y - kn.y;
-                if(kn.active && Math.sqrt(dx*dx + dy*dy) < kn.radius + player.size) {
+                let _knCR = kn.radius + player.size;
+                if(kn.active && dx*dx + dy*dy < _knCR*_knCR) {
                     kn.active = false; score += 1000 * scoreMultiplier; stats.nodes++; playSfx('nodes');
                     triggerExplosion(kn.x, kn.y, envRules.theme.p); spawnFloatingText(kn.x, kn.y, `+${1000 * Math.floor(scoreMultiplier)}`, envRules.theme.p);
                     unlockAchievement("NODE DECRYPTED", "Data point secured.", "∫");
@@ -1757,7 +1863,8 @@
             for(let i=portals.length-1; i>=0; i--) {
                 let p = portals[i]; p.x -= scrollSpeed * timeScale;
                 let dx = player.x - p.x, dy = player.y - p.y;
-                if(p.active && Math.sqrt(dx*dx + dy*dy) < p.radius + player.size) {
+                let _pCR = p.radius + player.size;
+                if(p.active && dx*dx + dy*dy < _pCR*_pCR) {
                     p.active = false; applyTransformation(p.type);
                     for(let j=0; j<20; j++) spawnParticle(p.x, p.y, 'var(--accent-gold)', (Math.random()-0.5)*15, (Math.random()-0.5)*15, 3, 40);
                 }
@@ -1787,13 +1894,13 @@
             for(let i=powerupItems.length-1; i>=0; i--) {
                 let p = powerupItems[i]; 
                 if (processType === 'magnet') {
-                    let dx = player.x - p.x, dy = player.y - p.y; let d = Math.sqrt(dx*dx + dy*dy);
-                    if (d < 400) { p.x += (dx/d) * 20 * timeScale; p.y += (dy/d) * 20 * timeScale; } else { p.x -= scrollSpeed * timeScale; }
+                    let dx = player.x - p.x, dy = player.y - p.y; let dSq = dx*dx + dy*dy;
+                    if (dSq < 160000) { let d = Math.sqrt(dSq); p.x += (dx/d) * 20 * timeScale; p.y += (dy/d) * 20 * timeScale; } else { p.x -= scrollSpeed * timeScale; }
                 } else { p.x -= scrollSpeed * timeScale; }
 
                 let dx = player.x - p.x, dy = player.y - p.y;
-                if(Math.sqrt(dx*dx + dy*dy) < p.radius + player.size) {
-                    console.log("[DEBUG] Powerup collected:", p.type);
+                let _puCR = p.radius + player.size;
+                if(dx*dx + dy*dy < _puCR*_puCR) {
                     if (p.type === 'shield') {
                         player.hasShield = true; playSfx('upgrade');
                         triggerExplosion(p.x, p.y, '#00f3ff'); spawnFloatingText(p.x, p.y - 30, "VOLATILITY BUFFER", '#00f3ff');
@@ -1830,7 +1937,7 @@
                 if (activeBoss && activeBoss.state === 'PHASE1') {
                     let hitDist = activeBoss.id === 'swan' ? 80 : 50; 
                     let dx = p.x - activeBoss.x, dy = p.y - activeBoss.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < hitDist) { activeBoss.takeDamage(p.dmg); if(p.type !== 'piercing') { playerProjectiles.splice(i, 1); continue; } }
+                    if (dx*dx + dy*dy < hitDist*hitDist) { activeBoss.takeDamage(p.dmg); if(p.type !== 'piercing') { playerProjectiles.splice(i, 1); continue; } }
                 }
                 if (p.x > width + 50) playerProjectiles.splice(i, 1);
             }
@@ -1840,7 +1947,7 @@
                 p.x += p.speedX * timeScale; 
                 p.y += p.speedY * timeScale; 
                 p.life -= timeScale;
-                if(p.life <= 0) particles.splice(i, 1);
+                if(p.life <= 0) { particles.splice(i, 1); if (_particlePool.length < 300) _particlePool.push(p); }
             }
 
             handleCollisions();
@@ -1850,8 +1957,10 @@
             let totalMultiplier = scoreMultiplier * (processType === 'log' ? 3.0 : (processType === 'squared' ? 2.0 : 1.0));
 
 	    let scoreStr = Math.floor(score).toLocaleString();
-            let scoreEl = document.getElementById('ui-total-score');
-            if (scoreEl) scoreEl.innerText = scoreStr;
+            if (window.lastScoreDisplayStr !== scoreStr) {
+                if (uiTotalScore) uiTotalScore.innerText = scoreStr;
+                window.lastScoreDisplayStr = scoreStr;
+            }
 
             let actualTimeSeconds = survivalFrames / 60;
             let timeStr = actualTimeSeconds.toFixed(2) + "s";
@@ -1933,31 +2042,30 @@
 
             ctx.globalCompositeOperation = 'lighter';
 
-            // Horizon Gradient
-            let horizonGrad = ctx.createLinearGradient(0, height/2 - 200, 0, height/2 + 200);
-            horizonGrad.addColorStop(0, 'rgba(0,0,0,0)');
-            horizonGrad.addColorStop(0.5, `rgba(255,255,255,0.03)`);
-            horizonGrad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = horizonGrad; ctx.fillRect(0, 0, width, height);
+            // Horizon Gradient (cached — only rebuilt on resize)
+            ctx.fillStyle = getHorizonGrad(); ctx.fillRect(0, 0, width, height);
 
-            // Atmosphere Fog
-            ctx.fillStyle = `rgba(15, 18, 40, 0.25)`; ctx.fillRect(0, 0, width, height);
+            // Atmosphere Fog (static string — no allocation per frame)
+            ctx.fillStyle = 'rgba(15,18,40,0.25)'; ctx.fillRect(0, 0, width, height);
 
-            // CONTINUOUS STOCHASTIC WAVE FIELD — layered probability currents whose phase advances via
-            // a mean-reverting velocity and whose amplitude eases toward its target (see updateAmbientVisuals),
-            // so nothing here ever snaps regardless of boss fights, storms, or transformations.
-            for (let layer = 0; layer < 3; layer++) {
+            // CONTINUOUS STOCHASTIC WAVE FIELD — layered probability currents
+            const _wlw = [20, 15, 10];
+            for (let layer = 0; layer < PERF_TIERS[perfTier].waveLayers; layer++) {
                 ctx.beginPath();
                 let freq = 0.005 * (1 + layer * 0.35);
+                let ph = waveField.phase[layer], amp = waveField.amp[layer];
+                let ph14 = ph * 1.4;
+                let ampMini = amp * 0.22;
+                let hw = height / 2;
                 for (let x = 0; x <= width; x += 26) {
-                    let yWave = height/2
-                        + Math.sin(x*freq + waveField.phase[layer]) * waveField.amp[layer]
-                        + Math.sin(x*freq*2.7 - waveField.phase[layer]*1.4) * waveField.amp[layer] * 0.22;
+                    let yWave = hw
+                        + Math.sin(x * freq + ph) * amp
+                        + Math.sin(x * freq * 2.7 - ph14) * ampMini;
                     if (x === 0) ctx.moveTo(x, yWave); else ctx.lineTo(x, yWave);
                 }
-                let alpha = Math.max(0, (0.022 + sigma*0.005) * (1 - layer*0.3));
-                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-                ctx.lineWidth = 20 - layer*5;
+                let alpha = Math.max(0, (0.022 + sigma * 0.005) * (1 - layer * 0.3));
+                ctx.strokeStyle = `rgba(255,255,255,${alpha.toFixed(3)})`;
+                ctx.lineWidth = _wlw[layer];
                 ctx.stroke();
             }
 
@@ -2372,9 +2480,11 @@
             // anywhere else. Clamped to guard against huge single-frame jumps after a tab-switch
             // or other stall (so the game "lags" rather than visibly teleports/skips).
             if (typeof rafTs !== 'number') rafTs = performance.now();
-            let _frameMs = (_lastFrameTs != null) ? (rafTs - _lastFrameTs) : (1000/60);
+            let _isFirstFrame = (_lastFrameTs == null);
+            let _frameMs = _isFirstFrame ? (1000/60) : (rafTs - _lastFrameTs);
             _lastFrameTs = rafTs;
             _dt = Math.min(Math.max(_frameMs, 0) / (1000/60), 3);
+            if (!_isFirstFrame) adaptivePerfSample(_frameMs);
 
             if (isRecovering) {
                 recoveryTimer -= _dt;
@@ -2403,8 +2513,53 @@
             updateHUD(); draw(); requestAnimationFrame(loop);
         }
 
+        // ============================================================
+        // ENGINE PRELOAD PHASE
+        // Runs during the intro sequence's visible "initializing..." messages. Uses that real
+        // time window (which already existed purely as a visual flourish) to perform the
+        // genuinely expensive first-time setup below, so none of it has to happen during actual
+        // gameplay — where it would otherwise show up as first-use stutters, audio delays, or
+        // rendering hitches.
+        // ============================================================
+        function warmObjectPools() {
+            // Pre-fills the particle recycling pool so the very first explosion of the run
+            // doesn't need to allocate any fresh objects.
+            for (let i = 0; i < 100; i++) {
+                _particlePool.push({x:0,y:0,color:'#fff',speedX:0,speedY:0,size:1,life:1,maxLife:1,type:'normal',text:undefined});
+            }
+        }
+        function warmRenderingPipeline() {
+            // Exercises the same Canvas2D state changes used throughout real gameplay (gradients,
+            // shadowBlur glows, additive compositing, arcs, text) off-screen, so the GPU/driver and
+            // the browser's internal caches are already warm before the player's first real frame.
+            try {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                let g = ctx.createRadialGradient(0, 0, 1, 0, 0, 50);
+                g.addColorStop(0, 'rgba(255,255,255,0.5)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = g;
+                ctx.shadowBlur = 20; ctx.shadowColor = '#7fff8c';
+                ctx.beginPath(); ctx.arc(-9999, -9999, 20, 0, Math.PI*2); ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.font = "20px serif"; ctx.fillText('μ', -9999, -9999);
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.restore();
+            } catch(e) {}
+        }
+        function warmMiscSystems() {
+            // Light JIT warmup for the procedural noise function sampled continuously during play.
+            for (let i = 0; i < 20; i++) randomNormal();
+        }
+        function runEnginePreload() {
+            warmObjectPools();
+            warmRenderingPipeline();
+            warmMiscSystems();
+            preloadAllAudio();
+        }
+
         function runIntroSequence() {
             isIntro = true; hudContainer.style.opacity = 0; introSeq.style.opacity = 1;
+            runEnginePreload();
             setTimeout(() => { introSeq.innerText = "INITIALIZING STOCHASTIC PROCESS..."; }, 500);
             setTimeout(() => { introSeq.innerText = "CALCULATING DRIFT..."; hudContainer.style.opacity = 1; }, 1500);
             setTimeout(() => { introSeq.innerText = "VOLATILITY DETECTED..."; }, 2500);
