@@ -268,6 +268,75 @@
             animation: boss-pulse 1s infinite alternate; 
         }
 
+        /* ============================================================
+           RESPONSIVE LAYOUT — scales every fixed-size UI element to
+           fit cleanly across phones (375px+), tablets (768px+), and
+           desktops (1024px+) without changing any gameplay mechanics.
+           All clamp() calls: min for smallest phone, preferred is a
+           viewport-relative value, max matches the original design size.
+        ============================================================ */
+
+        /* System alert (anomaly warning) */
+        #system-alert h1 { font-size: clamp(2rem, 8vw, 5rem); }
+        #system-alert h2 { font-size: clamp(1rem, 3.5vw, 1.8rem); }
+
+        /* Pause overlay */
+        #pause-overlay h2 { font-size: clamp(2rem, 7vw, 4rem); }
+
+        /* Post-run analysis */
+        .pra-header { font-size: clamp(1.8rem, 6vw, 4rem); }
+        .pra-seed { font-size: clamp(0.75rem, 2vw, 1.2rem); }
+        .pra-stat span:last-child { font-size: clamp(1rem, 2.5vw, 1.5rem); }
+        .pra-grid {
+            width: min(600px, 95vw);
+            grid-template-columns: repeat(auto-fit, minmax(min(240px, 40vw), 1fr));
+            gap: clamp(10px, 2vw, 20px);
+        }
+
+        /* Live HUD */
+        .hud-container { padding: clamp(10px, 2vw, 20px) clamp(12px, 3vw, 40px); }
+        .meters { width: clamp(140px, 22vw, 250px); }
+        .stat-value { font-size: clamp(1.4rem, 3.5vw, 2.5rem); }
+        .stat-label { font-size: clamp(0.6rem, 1.4vw, 0.85rem); }
+        .meter-label { font-size: clamp(0.6rem, 1.4vw, 0.8rem); }
+
+        /* Equation HUD */
+        .equation-hud { font-size: clamp(1rem, 3vw, 2.5rem); padding: clamp(6px, 1vw, 10px) clamp(12px, 2vw, 30px); }
+
+        /* Boss UI */
+        .boss-name { font-size: clamp(0.9rem, 2.5vw, 1.5rem); }
+
+        /* Popup / notifications */
+        #popup-title { font-size: clamp(1.2rem, 3.5vw, 2rem); }
+        #popup-desc { font-size: clamp(0.75rem, 2vw, 1.1rem); }
+
+        /* Achievement cards */
+        .achieve-icon { font-size: clamp(1.2rem, 3vw, 2rem); }
+        .achieve-text h4 { font-size: clamp(0.75rem, 1.8vw, 1rem); }
+        .achieve-text p { font-size: clamp(0.65rem, 1.5vw, 0.8rem); }
+        #achievement-container { bottom: clamp(50px, 8vw, 80px); right: clamp(10px, 2vw, 30px); }
+
+        /* Floating score text */
+        .floating-text { font-size: clamp(0.8rem, 2.5vw, 1.2rem); }
+
+        /* Phone breakpoint: stack HUD meters vertically, shrink harder */
+        @media (max-width: 600px) {
+            .hud-container { flex-wrap: wrap; gap: 8px; }
+            .meters { width: 100%; flex-direction: row; gap: 8px; }
+            .meter-group { flex: 1; min-width: 0; }
+            .pra-grid { grid-template-columns: 1fr; }
+            .achieve-card { padding: 10px 16px; gap: 10px; }
+            #powerup-display { bottom: 8px; left: 50%; transform: translateX(-50%); }
+        }
+
+        /* Tablet breakpoint */
+        @media (max-width: 900px) and (min-width: 601px) {
+            .pra-grid { grid-template-columns: 1fr 1fr; width: min(560px, 95vw); }
+        }
+
+        /* Prevent post-run-analysis overflow on very small screens */
+        #post-run-analysis { padding: clamp(10px, 3vw, 20px); overflow-y: auto; }
+        .btn-restart { font-size: clamp(0.8rem, 2.5vw, 1.2rem); padding: clamp(10px, 2vw, 18px) clamp(20px, 4vw, 40px); }
     </style>
 </head>
 <body>
@@ -299,11 +368,11 @@
                 <div class="stat-label">SURVIVAL TIME</div>
             </div>
 	    <div class="stat-block">
-                <div class="stat-value" id="ui-dist" style="font-size: 1.8rem;">0m</div>
+                <div class="stat-value" id="ui-dist">0m</div>
                 <div class="stat-label">DISTANCE</div>
             </div>
 	    <div class="stat-block">
-                <div class="stat-value" id="ui-total-score" style="font-size: 1.8rem;">0</div>
+                <div class="stat-value" id="ui-total-score">0</div>
                 <div class="stat-label">TOTAL SCORE</div>
             </div>
             <div id="multiplier-display">x1.0</div>
@@ -339,14 +408,32 @@
 
     <script>
         const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d', { alpha: false });
-        let width, height; function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
-        // Setting canvas.width/height clears the entire bitmap to transparent immediately. If the
-        // browser composites a frame before the next natural rAF tick repaints it, the page's
-        // background can show through for a single frame — a likely contributor to the reported
-        // white-flash issue, especially on resize/orientation-change. Repainting synchronously
-        // right after a resize event closes that window. (Not applied to the very first call below,
-        // since game state isn't initialized yet at that point.)
-        window.addEventListener('resize', () => { resize(); try { draw(); } catch(e) {} });
+        // Hoisted here so resize() (defined next) can safely reference _horizonGradHeight
+        // without hitting a temporal dead zone. The values are mutated by getHorizonGrad().
+        let _horizonGrad = null, _horizonGradHeight = -1;
+        let width, height, dpr = 1;
+        function resize() {
+            width = window.innerWidth; height = window.innerHeight;
+            // devicePixelRatio correction: makes canvas bitmap match physical pixels on
+            // Retina/HiDPI screens so all canvas text and edges render crisp rather than blurry.
+            // Capped at 3 to prevent extreme memory usage on very-high-density displays.
+            // All gameplay coordinate math continues to use CSS-pixel units (width × height)
+            // because ctx.scale(dpr, dpr) translates between them transparently.
+            dpr = Math.min(window.devicePixelRatio || 1, 3);
+            canvas.width  = Math.round(width  * dpr);
+            canvas.height = Math.round(height * dpr);
+            canvas.style.width  = width  + 'px';
+            canvas.style.height = height + 'px';
+            ctx.scale(dpr, dpr);
+            _horizonGradHeight = -1; // invalidate the cached gradient since canvas size changed
+        }
+        let _resizeRepaintPending = false;
+        window.addEventListener('resize', () => {
+            resize();
+            if (_resizeRepaintPending) return;
+            _resizeRepaintPending = true;
+            requestAnimationFrame(() => { _resizeRepaintPending = false; try { draw(); } catch(e) {} });
+        });
         resize();
 
         // --- GAME ENGINE STATE ---
@@ -1195,10 +1282,17 @@
             portals.push({ x: pos.x, y: pos.y, radius: 60, type: types[Math.floor(Math.random()*types.length)], active: true }); 
         }
         
-        // Cached gradient/style objects for the draw() hot path — these are read every frame so
-        // creating them freshly each call (60+ times per second) is pure waste. They are recreated
-        // only on resize, the only event that actually changes their inputs.
-        let _horizonGrad = null, _horizonGradHeight = -1;
+        // Cached gradient/style objects for the draw() hot path — declared at module top to avoid
+        // temporal dead zone: resize() references _horizonGradHeight before this line was reached.
+        // Scales a canvas font size to the smaller screen dimension so text stays proportional
+        // across phones (375px), tablets (768px), and large desktops (1920px+). Pass the size
+        // that looks correct at 800px (a middle-ground reference) and let it scale from there.
+        // Clamped to ensure legibility on both tiny phones and very large displays.
+        function cvFont(refSize, weight, family) {
+            let scaled = Math.max(10, Math.round(refSize * Math.min(width, height) / 800));
+            return `${weight ? weight + ' ' : ''}${scaled}px ${family || 'serif'}`;
+        }
+
         function getHorizonGrad() {
             if (_horizonGradHeight !== height) {
                 _horizonGrad = ctx.createLinearGradient(0, height/2 - 200, 0, height/2 + 200);
@@ -1242,9 +1336,9 @@
         // of those systems read these values.
         // ============================================================
         const PERF_TIERS = [
-            { particleMult: 0.42, waveLayers: 1 },  // tier 0: low-end hardware
-            { particleMult: 0.70, waveLayers: 2 },  // tier 1: mid-range
-            { particleMult: 1.00, waveLayers: 3 }   // tier 2: full quality (default/start)
+            { particleMult: 0.42, waveLayers: 1, glowMult: 0.0  },  // tier 0: low-end hardware
+            { particleMult: 0.70, waveLayers: 2, glowMult: 0.6  },  // tier 1: mid-range
+            { particleMult: 1.00, waveLayers: 3, glowMult: 1.0  }   // tier 2: full quality (default/start)
         ];
         let perfTier = 2;
         let _perfAccumMs = 0, _perfFrames = 0, _perfHoldFrames = 0;
@@ -1554,12 +1648,12 @@
             }
             draw(ctx) {
                 if(!this.active) return;
-                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = this.color; ctx.font = "24px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur = 15; ctx.shadowColor = this.color;
+                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = this.color; ctx.font = cvFont(24); ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur = 15; ctx.shadowColor = this.color;
                 let symbols = ['∫', '∂', 'λ', 'Δ', 'dW', 'dt'];
                 for(let j=1; j<=3; j++) {
                     let r = j * 60;
                     for(let i=0; i<symbols.length; i++) { let angle = (i/symbols.length) * Math.PI*2 + (this.timer*0.02*(j%2===0?1:-1)); ctx.fillText(symbols[i], Math.cos(angle)*r, Math.sin(angle)*r); }
-                } ctx.font = "50px serif"; ctx.fillStyle = "#fff"; ctx.fillText("I", 0, 0); ctx.restore();
+                } ctx.font = cvFont(50, 'bold'); ctx.fillStyle = "#fff"; ctx.fillText("I", 0, 0); ctx.restore();
             }
         }
 
@@ -1782,7 +1876,15 @@
                 if (s.x < -300 && obstacles[i]) obstacles.splice(i, 1);
             }
 
-            if(timeScale > 0 && !isDead && !isRecovering) dmgOverlay.style.boxShadow = dangerClose ? `inset 0 0 ${100 + Math.sin(activeFrameCount*0.2)*50}px var(--accent-red)` : "inset 0 0 0px var(--accent-red)";
+            if(timeScale > 0 && !isDead && !isRecovering) {
+                if (dangerClose) {
+                    dmgOverlay.style.boxShadow = `inset 0 0 ${100 + Math.sin(activeFrameCount*0.2)*50}px var(--accent-red)`;
+                    window._dmgOverlayWasOff = false;
+                } else if (!window._dmgOverlayWasOff) {
+                    dmgOverlay.style.boxShadow = "inset 0 0 0px var(--accent-red)";
+                    window._dmgOverlayWasOff = true;
+                }
+            }
 
             if (playerHit && timeScale > 0 && !isDead && !isRecovering) {
                 if (player.hasShield) {
@@ -2149,7 +2251,7 @@
                 }
                 
                 ctx.rotate(-activeFrameCount * 0.05);
-                ctx.fillStyle = pColor; ctx.font = "bold 14px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur=15;
+                ctx.fillStyle = pColor; ctx.font = cvFont(14, 'bold'); ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur=15;
                 ctx.fillText(pText1, 0, -radius*1.6); 
                 ctx.fillText(pText2, 0, radius*1.6); 
                 ctx.restore();
@@ -2167,7 +2269,7 @@
                 ctx.fillStyle = pTheme ? pTheme.shadow : '#fff'; ctx.globalAlpha = 0.3 + Math.sin(activeFrameCount * 0.1)*0.2;
                 ctx.beginPath(); ctx.arc(0, 0, p.radius * 0.5, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1.0;
                 
-                ctx.fillStyle = pTheme ? pTheme.stroke : '#fff'; ctx.font = "12px serif";
+                ctx.fillStyle = pTheme ? pTheme.stroke : '#fff'; ctx.font = cvFont(12);
                 let syms = pTheme ? pTheme.syms : ['∫','σ','μ'];
                 for(let i=0; i<3; i++) { ctx.fillText(syms[i], Math.cos(i*Math.PI*2/3)*p.radius*0.7, Math.sin(i*Math.PI*2/3)*p.radius*0.7); }
 
@@ -2225,7 +2327,7 @@
                     ctx.beginPath(); ctx.arc(px, py, (1 - (p.life / p.maxLife)) * width * 1.5, 0, TWO_PI); ctx.stroke();
                 } else if (p.text) {
                     ctx.fillStyle = p.color; ctx.globalAlpha = p.life / p.maxLife;
-                    ctx.font = "30px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; 
+                    ctx.font = cvFont(30); ctx.textAlign = "center"; ctx.textBaseline="middle"; 
                     ctx.shadowBlur = 10; ctx.shadowColor = p.color;
                     ctx.fillText(p.text, px, py); ctx.shadowBlur = 0;
                 } else {
@@ -2243,7 +2345,7 @@
                 ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 2, 0, Math.PI*2);
                 ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
                 ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2);
-                ctx.fillStyle = p.color; ctx.shadowBlur = 12; ctx.shadowColor = p.color; ctx.fill(); ctx.shadowBlur = 0;
+                ctx.fillStyle = p.color; ctx.shadowBlur = 12 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = p.color; ctx.fill(); ctx.shadowBlur = 0;
             }
             ctx.restore();
 
@@ -2270,7 +2372,7 @@
                     ctx.save();
                     ctx.translate(player.x, player.y);
                     ctx.rotate(activeFrameCount * 0.05);
-                    ctx.fillStyle = '#fff'; ctx.font = '12px serif'; ctx.textAlign = 'center'; ctx.textBaseline='middle'; ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff'; ctx.font = cvFont(12); ctx.textAlign = 'center'; ctx.textBaseline='middle'; ctx.shadowBlur = 0;
                     let orbitR = player.size + 25;
                     ctx.fillText('σSₜdWₜ', 0, -orbitR);
                     ctx.fillText('Var(X)=σ²', 0, orbitR);
@@ -2460,7 +2562,7 @@
                     ctx.beginPath(); ctx.moveTo(cx, cy - ps); ctx.lineTo(cx + ps, cy + ps); ctx.lineTo(cx - ps, cy + ps);
                     ctx.closePath(); ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.stroke();
                     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
-                    ctx.fillStyle = '#ffffff'; ctx.font = '20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillStyle = '#ffffff'; ctx.font = cvFont(20, 'bold'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                     ctx.fillText(def.glyph, cx, cy + 5);
                 }
             }
