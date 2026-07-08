@@ -44,22 +44,34 @@
             transform: translateZ(0); backface-visibility: hidden; will-change: transform, filter;
         }
 
-        body.boss-active #game-canvas { transform: scale(0.97) rotateX(2deg); filter: contrast(1.15) saturate(1.2); }
-        body.warning-active #game-canvas { animation: warning-shake 0.2s infinite; filter: contrast(1.5) saturate(2) hue-rotate(-20deg); }
-        body.near-miss #game-canvas { transform: scale(1.02) skewX(-1deg); filter: contrast(1.3) saturate(1.5) hue-rotate(15deg); }
+        /* OPTIMIZATION: removed filter: contrast()/saturate()/hue-rotate() from all three of these
+           rules. The canvas repaints every frame via requestAnimationFrame, so a CSS filter sitting
+           on top of it isn't a one-time cost — the browser has to recompute the filtered bitmap on
+           every single composite, on top of everything draw() is already doing. warning-active also
+           combines this with an infinite transform animation, compounding the cost for the whole
+           encounter. Transforms (scale/rotate/skew) are cheap (compositor-only) and are kept. */
+        body.boss-active #game-canvas { transform: scale(0.97) rotateX(2deg); }
+        body.warning-active #game-canvas { animation: warning-shake 0.2s infinite; }
+        body.near-miss #game-canvas { transform: scale(1.02) skewX(-1deg); }
 
         @keyframes warning-shake { 0% { transform: translate(2px, 1px) rotate(0deg); } 50% { transform: translate(-1px, -2px) rotate(-1deg); } 100% { transform: translate(-3px, 1px) rotate(1deg); } }
 
         #vfx-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; z-index: 5; transition: all 1s ease; mix-blend-mode: overlay;
+            pointer-events: none; z-index: 5; transition: box-shadow 0.8s ease, opacity 0.8s ease; mix-blend-mode: overlay;
         }
 
-        body.boss-active #vfx-overlay { box-shadow: inset 0 0 150px rgba(255, 51, 102, 0.3); animation: boss-pulse 2s infinite alternate; }
-        body.warning-active #vfx-overlay { box-shadow: inset 0 0 200px rgba(255, 0, 0, 0.6); animation: warning-pulse 0.5s infinite alternate; }
+        body.boss-active #vfx-overlay { box-shadow: inset 0 0 150px rgba(255, 51, 102, 0.35); animation: boss-pulse 2s infinite alternate; }
+        body.warning-active #vfx-overlay { box-shadow: inset 0 0 175px rgba(255, 0, 0, 0.55); animation: warning-pulse 0.5s infinite alternate; }
 
-        @keyframes boss-pulse { 0% { box-shadow: inset 0 0 100px rgba(255, 51, 102, 0.2); } 100% { box-shadow: inset 0 0 200px rgba(255, 51, 102, 0.5); } }
-        @keyframes warning-pulse { 0% { box-shadow: inset 0 0 100px rgba(255, 0, 0, 0.3); } 100% { box-shadow: inset 0 0 250px rgba(255, 0, 0, 0.8); } }
+        /* These now pulse opacity instead of animating the box-shadow's blur radius/spread directly —
+           animating box-shadow forces the browser to fully re-rasterize the blurred shape on every
+           single animation frame (expensive, CPU-bound, not GPU-compositable), whereas opacity is
+           one of the cheapest properties to animate (handled entirely by the compositor). The
+           box-shadow itself is now fixed at a representative intensity; only the overlay's opacity
+           breathes, producing the same pulsing-glow feel for a fraction of the rendering cost. */
+        @keyframes boss-pulse { 0% { opacity: 0.65; } 100% { opacity: 1; } }
+        @keyframes warning-pulse { 0% { opacity: 0.55; } 100% { opacity: 1; } }
 
         /* --- INTRO SEQUENCE --- */
         #intro-sequence {
@@ -78,8 +90,12 @@
             transition: opacity 1s ease;
         }
 
+        /* OPTIMIZATION: dropped filter: saturate()/hue-rotate() — this runs on the full-width HUD
+           bar via an infinite 0.2s keyframe, so it was forcing a filtered re-composite of a large
+           element on every animation tick for the whole death sequence. The transform/opacity glitch
+           in the keyframe itself already carries the effect and is compositor-cheap. */
         .hud-container.glitch-extreme {
-            animation: hud-death-glitch 0.2s infinite; filter: saturate(3) hue-rotate(90deg);
+            animation: hud-death-glitch 0.2s infinite;
         }
 
         @keyframes hud-death-glitch {
@@ -126,8 +142,8 @@
         .equation-hud {
             font-family: "Times New Roman", serif; font-style: italic; font-size: 2.5rem;
             color: rgba(255, 255, 255, 0.4); letter-spacing: 0.05em;
-            background: rgba(0, 0, 0, 0.4); padding: 10px 30px; border-radius: 50px;
-            border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(5px); 
+            background: rgba(0, 0, 0, 0.72); padding: 10px 30px; border-radius: 50px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
             transition: border-color 0.5s, box-shadow 0.5s, transform 0.3s, opacity 0.7s ease, filter 0.7s ease;
             white-space: nowrap; display: flex; align-items: center; justify-content: center;
         }
@@ -145,18 +161,27 @@
         @keyframes eq-glitch { 0% { transform: skewX(-5deg) translate(0, 0); } 50% { transform: skewX(-7deg) translate(1px, -1px); } 100% { transform: skewX(-3deg) translate(-1px, 1px); } }
 
         /* Reactive boss equation term — pulses the instant that boss's signature attack fires */
-        #boss-eq-reactive { display: inline-block; transition: text-shadow 0.2s ease, filter 0.2s ease; }
+        #boss-eq-reactive { display: inline-block; text-shadow: 0 0 15px currentColor; transition: filter 0.2s ease; }
         #boss-eq-reactive.boss-eq-flash { animation: boss-eq-pulse 0.65s ease; }
+        /* OPTIMIZATION: text-shadow is no longer animated across keyframes — its blur radius/spread
+           previously had to be fully recalculated on every animation frame for 0.65s each time this
+           fired. The glow is now a single static text-shadow (set above, computed once), and the
+           "pulse" is carried entirely by transform (scale) and filter: brightness(), both of which
+           the compositor handles cheaply frame-to-frame. */
         @keyframes boss-eq-pulse {
-            0% { text-shadow: 0 0 6px rgba(255,255,255,0.3); transform: scale(1); filter: brightness(1); }
-            25% { text-shadow: 0 0 25px #fff, 0 0 50px currentColor; transform: scale(1.45); filter: brightness(1.9); }
-            100% { text-shadow: 0 0 6px rgba(255,255,255,0.3); transform: scale(1); filter: brightness(1); }
+            0% { transform: scale(1); filter: brightness(1); }
+            25% { transform: scale(1.45); filter: brightness(1.9); }
+            100% { transform: scale(1); filter: brightness(1); }
         }
 
         .eq-term { transition: all 0.2s ease-out; display: inline-block; }
         .eq-mu { display: inline-block; transition: all 0.1s ease-out; }
         .eq-sigma { display: inline-block; transition: all 0.1s ease-out; }
-        .eq-sigma.crackling { animation: electric-crackle 0.15s infinite; }
+        /* OPTIMIZATION: added a static (non-animated) text-shadow here instead of animating it in
+           the keyframe below. This class can stay active continuously for as long as volatility is
+           elevated, so an "infinite" animation that touched text-shadow was recalculating a blurred
+           glyph shape every ~150ms for the entire duration — now it's computed once. */
+        .eq-sigma.crackling { text-shadow: 0 0 15px #fff; animation: electric-crackle 0.15s infinite; }
         .eq-dw { display: inline-block; transition: all 0.05s ease-out; }
         .eq-st { display: inline-block; transition: all 0.1s ease-out; }
 
@@ -165,7 +190,9 @@
         .highlight-green { color: var(--accent-green) !important; text-shadow: 0 0 15px var(--accent-green) !important; transform: scale(1.1); }
         .highlight-red { color: var(--accent-red) !important; text-shadow: 0 0 15px var(--accent-red) !important; transform: scale(1.1); }
 
-        @keyframes electric-crackle { 0% { transform: translate(1px, -1px) skewX(2deg); opacity: 1; } 50% { transform: translate(-1px, 1px) skewX(-2deg); opacity: 0.8; text-shadow: 0 0 25px #fff; } 100% { transform: translate(0, 0) skewX(0deg); opacity: 1; } }
+        /* OPTIMIZATION: dropped the text-shadow: 0 0 25px #fff step at 50% — see .eq-sigma.crackling
+           above for why. Only transform/opacity are animated now, both GPU-compositable. */
+        @keyframes electric-crackle { 0% { transform: translate(1px, -1px) skewX(2deg); opacity: 1; } 50% { transform: translate(-1px, 1px) skewX(-2deg); opacity: 0.8; } 100% { transform: translate(0, 0) skewX(0deg); opacity: 1; } }
 
         /* --- SYSTEM ALERTS (CENTERED & CINEMATIC) --- */
         #system-alert {
@@ -216,14 +243,14 @@
 
         /* Holographic Achievements */
         #achievement-container { position: absolute; bottom: 80px; right: 30px; z-index: 40; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-        .achieve-card { background: rgba(6, 8, 32, 0.9); border-left: 4px solid var(--accent-gold); border-top: 1px solid rgba(255,215,0,0.3); border-bottom: 1px solid rgba(255,215,0,0.3); border-right: 1px solid rgba(255,215,0,0.3); padding: 15px 25px; border-radius: 4px; display: flex; align-items: center; gap: 15px; box-shadow: -10px 0 20px rgba(255, 215, 0, 0.1), inset 0 0 20px rgba(255,215,0,0.05); transform: translateX(120%); opacity: 0; filter: blur(5px); transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter: blur(10px); }
+        .achieve-card { background: rgba(6, 8, 32, 0.95); border-left: 4px solid var(--accent-gold); border-top: 1px solid rgba(255,215,0,0.3); border-bottom: 1px solid rgba(255,215,0,0.3); border-right: 1px solid rgba(255,215,0,0.3); padding: 15px 25px; border-radius: 4px; display: flex; align-items: center; gap: 15px; box-shadow: -10px 0 20px rgba(255, 215, 0, 0.1), inset 0 0 20px rgba(255,215,0,0.05); transform: translateX(120%); opacity: 0; filter: blur(5px); transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); will-change: transform, opacity, filter; }
         .achieve-card.show { transform: translateX(0); opacity: 1; filter: blur(0); }
         .achieve-icon { font-size: 2rem; color: var(--accent-gold); font-family: "Times New Roman", serif; font-style: italic; }
         .achieve-text h4 { font-family: var(--font-display); font-size: 1rem; color: #fff; margin: 0; letter-spacing: 0.1em; }
         .achieve-text p { font-family: var(--font-ui); font-size: 0.8rem; color: var(--accent-gold); margin: 0; letter-spacing: 0.1em; text-transform: uppercase; }
 
         /* Pause & Post-Run Analysis */
-        #pause-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(3, 4, 18, 0.7); backdrop-filter: blur(8px); display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; z-index: 60; }
+        #pause-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(3, 4, 18, 0.82); display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; z-index: 60; will-change: opacity; }
         #pause-overlay.active { opacity: 1; pointer-events: all; }
         #pause-overlay h2 { font-family: var(--font-display); font-size: 4rem; color: var(--theme-secondary); text-shadow: 0 0 20px var(--theme-secondary); letter-spacing: 0.3em; margin-bottom: 10px; }
         
@@ -231,10 +258,9 @@
         
         #post-run-analysis {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(3, 4, 18, 0.95); display: flex; flex-direction: column;
+            background: rgba(3, 4, 18, 0.97); display: flex; flex-direction: column;
             align-items: center; justify-content: center; z-index: 50; opacity: 0;
-            pointer-events: none; transition: opacity 1s ease;
-            backdrop-filter: blur(15px);
+            pointer-events: none; transition: opacity 1s ease; will-change: opacity;
         }
         #post-run-analysis.active { opacity: 1; pointer-events: all; }
         
@@ -263,6 +289,75 @@
             animation: boss-pulse 1s infinite alternate; 
         }
 
+        /* ============================================================
+           RESPONSIVE LAYOUT — scales every fixed-size UI element to
+           fit cleanly across phones (375px+), tablets (768px+), and
+           desktops (1024px+) without changing any gameplay mechanics.
+           All clamp() calls: min for smallest phone, preferred is a
+           viewport-relative value, max matches the original design size.
+        ============================================================ */
+
+        /* System alert (anomaly warning) */
+        #system-alert h1 { font-size: clamp(2rem, 8vw, 5rem); }
+        #system-alert h2 { font-size: clamp(1rem, 3.5vw, 1.8rem); }
+
+        /* Pause overlay */
+        #pause-overlay h2 { font-size: clamp(2rem, 7vw, 4rem); }
+
+        /* Post-run analysis */
+        .pra-header { font-size: clamp(1.8rem, 6vw, 4rem); }
+        .pra-seed { font-size: clamp(0.75rem, 2vw, 1.2rem); }
+        .pra-stat span:last-child { font-size: clamp(1rem, 2.5vw, 1.5rem); }
+        .pra-grid {
+            width: min(600px, 95vw);
+            grid-template-columns: repeat(auto-fit, minmax(min(240px, 40vw), 1fr));
+            gap: clamp(10px, 2vw, 20px);
+        }
+
+        /* Live HUD */
+        .hud-container { padding: clamp(10px, 2vw, 20px) clamp(12px, 3vw, 40px); }
+        .meters { width: clamp(140px, 22vw, 250px); }
+        .stat-value { font-size: clamp(1.4rem, 3.5vw, 2.5rem); }
+        .stat-label { font-size: clamp(0.6rem, 1.4vw, 0.85rem); }
+        .meter-label { font-size: clamp(0.6rem, 1.4vw, 0.8rem); }
+
+        /* Equation HUD */
+        .equation-hud { font-size: clamp(1rem, 3vw, 2.5rem); padding: clamp(6px, 1vw, 10px) clamp(12px, 2vw, 30px); }
+
+        /* Boss UI */
+        .boss-name { font-size: clamp(0.9rem, 2.5vw, 1.5rem); }
+
+        /* Popup / notifications */
+        #popup-title { font-size: clamp(1.2rem, 3.5vw, 2rem); }
+        #popup-desc { font-size: clamp(0.75rem, 2vw, 1.1rem); }
+
+        /* Achievement cards */
+        .achieve-icon { font-size: clamp(1.2rem, 3vw, 2rem); }
+        .achieve-text h4 { font-size: clamp(0.75rem, 1.8vw, 1rem); }
+        .achieve-text p { font-size: clamp(0.65rem, 1.5vw, 0.8rem); }
+        #achievement-container { bottom: clamp(50px, 8vw, 80px); right: clamp(10px, 2vw, 30px); }
+
+        /* Floating score text */
+        .floating-text { font-size: clamp(0.8rem, 2.5vw, 1.2rem); }
+
+        /* Phone breakpoint: stack HUD meters vertically, shrink harder */
+        @media (max-width: 600px) {
+            .hud-container { flex-wrap: wrap; gap: 8px; }
+            .meters { width: 100%; flex-direction: row; gap: 8px; }
+            .meter-group { flex: 1; min-width: 0; }
+            .pra-grid { grid-template-columns: 1fr; }
+            .achieve-card { padding: 10px 16px; gap: 10px; }
+            #powerup-display { bottom: 8px; left: 50%; transform: translateX(-50%); }
+        }
+
+        /* Tablet breakpoint */
+        @media (max-width: 900px) and (min-width: 601px) {
+            .pra-grid { grid-template-columns: 1fr 1fr; width: min(560px, 95vw); }
+        }
+
+        /* Prevent post-run-analysis overflow on very small screens */
+        #post-run-analysis { padding: clamp(10px, 3vw, 20px); overflow-y: auto; }
+        .btn-restart { font-size: clamp(0.8rem, 2.5vw, 1.2rem); padding: clamp(10px, 2vw, 18px) clamp(20px, 4vw, 40px); }
     </style>
 </head>
 <body>
@@ -294,11 +389,11 @@
                 <div class="stat-label">SURVIVAL TIME</div>
             </div>
 	    <div class="stat-block">
-                <div class="stat-value" id="ui-dist" style="font-size: 1.8rem;">0m</div>
+                <div class="stat-value" id="ui-dist">0m</div>
                 <div class="stat-label">DISTANCE</div>
             </div>
 	    <div class="stat-block">
-                <div class="stat-value" id="ui-total-score" style="font-size: 1.8rem;">0</div>
+                <div class="stat-value" id="ui-total-score">0</div>
                 <div class="stat-label">TOTAL SCORE</div>
             </div>
             <div id="multiplier-display">x1.0</div>
@@ -333,15 +428,33 @@
     <canvas id="game-canvas"></canvas>
 
     <script>
-        const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d');
-        let width, height; function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
-        // Setting canvas.width/height clears the entire bitmap to transparent immediately. If the
-        // browser composites a frame before the next natural rAF tick repaints it, the page's
-        // background can show through for a single frame — a likely contributor to the reported
-        // white-flash issue, especially on resize/orientation-change. Repainting synchronously
-        // right after a resize event closes that window. (Not applied to the very first call below,
-        // since game state isn't initialized yet at that point.)
-        window.addEventListener('resize', () => { resize(); try { draw(); } catch(e) {} });
+        const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d', { alpha: false });
+        // Hoisted here so resize() (defined next) can safely reference _horizonGradHeight
+        // without hitting a temporal dead zone. The values are mutated by getHorizonGrad().
+        let _horizonGrad = null, _horizonGradHeight = -1;
+        let width, height, dpr = 1;
+        function resize() {
+            width = window.innerWidth; height = window.innerHeight;
+            // devicePixelRatio correction: makes canvas bitmap match physical pixels on
+            // Retina/HiDPI screens so all canvas text and edges render crisp rather than blurry.
+            // Capped at 3 to prevent extreme memory usage on very-high-density displays.
+            // All gameplay coordinate math continues to use CSS-pixel units (width × height)
+            // because ctx.scale(dpr, dpr) translates between them transparently.
+            dpr = Math.min(window.devicePixelRatio || 1, 3);
+            canvas.width  = Math.round(width  * dpr);
+            canvas.height = Math.round(height * dpr);
+            canvas.style.width  = width  + 'px';
+            canvas.style.height = height + 'px';
+            ctx.scale(dpr, dpr);
+            _horizonGradHeight = -1; // invalidate the cached gradient since canvas size changed
+        }
+        let _resizeRepaintPending = false;
+        window.addEventListener('resize', () => {
+            resize();
+            if (_resizeRepaintPending) return;
+            _resizeRepaintPending = true;
+            requestAnimationFrame(() => { _resizeRepaintPending = false; try { draw(); } catch(e) {} });
+        });
         resize();
 
         // --- GAME ENGINE STATE ---
@@ -653,6 +766,7 @@
 
         const uiEq = document.getElementById('ui-eq'), fillDrift = document.getElementById('fill-drift'), fillVol = document.getElementById('fill-volatility'), txtDrift = document.getElementById('txt-drift'), txtVol = document.getElementById('txt-vol');
         const uiScore = document.getElementById('ui-score'), uiDist = document.getElementById('ui-dist'), multDisp = document.getElementById('multiplier-display'), reviveInd = document.getElementById('revive-indicator');
+        const uiTotalScore = document.getElementById('ui-total-score');
         const dmgOverlay = document.getElementById('damage-overlay'), popupContainer = document.getElementById('popup-container'), phaseIndicator = document.getElementById('phase-indicator'), pauseOverlay = document.getElementById('pause-overlay'), hudContainer = document.getElementById('main-hud');
         const powerupDisplay = document.getElementById('powerup-display'), postRunAnalysis = document.getElementById('post-run-analysis'), introSeq = document.getElementById('intro-sequence');
         const transformContainer = document.getElementById('transform-timer-container'), transformBar = document.getElementById('transform-timer-bar');
@@ -664,7 +778,7 @@
         // --- INPUT & PAUSE ---
         window.addEventListener('keydown', (e) => { if(e.code === 'Space') isSpaceDown = true; if(e.code === 'Escape' || e.code === 'KeyP') togglePause(); });
         window.addEventListener('keyup', (e) => { if(e.code === 'Space') isSpaceDown = false; });
-        window.addEventListener('touchstart', () => { isSpaceDown = true; }); 	window.addEventListener('touchend', () => { isSpaceDown = false; });
+        window.addEventListener('touchstart', () => { isSpaceDown = true; }, { passive: true }); 	window.addEventListener('touchend', () => { isSpaceDown = false; }, { passive: true });
 
         function togglePause() {
             if(!isPlaying || isDead || isIntro || isRecovering) return; isPaused = !isPaused;
@@ -698,6 +812,7 @@
         }
 
         function spawnFloatingText(x, y, text, color) {
+            if (document.querySelectorAll('.floating-text').length > 40) return;
             const el = document.createElement('div'); el.className = 'floating-text'; el.innerText = text; el.style.color = color;
             el.style.left = x + 'px'; el.style.top = y + 'px'; document.body.appendChild(el); setTimeout(() => el.remove(), 1000);
         }
@@ -817,11 +932,12 @@
                 
                 const syms = ['μ', 'σ', 'dW', '∫', '∂'];
                 for(let i=0; i<40; i++) {
-                    particles.push({
-                        x: player.x, y: player.y, speedX: (Math.random()-0.5)*25, speedY: (Math.random()-0.5)*25,
-                        life: 150, maxLife: 150, text: syms[Math.floor(Math.random()*syms.length)],
-                        color: ['#ff3366', '#00f3ff', '#7fff8c', '#ffd700'][Math.floor(Math.random()*4)]
-                    });
+                    // OPTIMIZATION: was a raw particles.push({...}) literal bypassing the object
+                    // pool entirely. This only fires once per death, so the GC impact was small,
+                    // but routing it through spawnParticle() keeps every particle-creation path in
+                    // the game consistent and pool-backed.
+                    let dp = spawnParticle(player.x, player.y, ['#ff3366', '#00f3ff', '#7fff8c', '#ffd700'][Math.floor(Math.random()*4)], (Math.random()-0.5)*25, (Math.random()-0.5)*25, 0, 150);
+                    dp.text = syms[Math.floor(Math.random()*syms.length)];
                 }
                 timeScale = 0.15; targetTimeScale = 0.15; _easedSpeed = 0.15;
             }
@@ -834,7 +950,9 @@
             triggerExplosion(player.x, player.y, '#ffd700', 60); triggerScreenShake(30);
             queuePopup("MARTINGALE RECOVERY ACTIVATED", "Returning to equilibrium state.", POPUP_PRIORITY.EVENT, 2400);
             enemyProjectiles.length = 0; playerProjectiles.length = 0; obstacles.length = 0; volZones.length = 0;
-            particles.push({x: player.x, y: player.y, color: 'rgba(255, 215, 0, 0.8)', type: 'wave', speedX: 0, speedY: 0, size: 0, maxLife: 60, life: 60});
+            // OPTIMIZATION: was a raw particles.push({...}) literal — now uses the pool like every
+            // other particle spawn in the game.
+            spawnParticle(player.x, player.y, 'rgba(255, 215, 0, 0.8)', 0, 0, 0, 60, 'wave');
             player.visualPulse += 0.5;
         }
 
@@ -1018,6 +1136,18 @@
             if(!inItoRealm && !Director.stormActive) envRules.bgColor = envRules.theme.bg;
         }
 
+        // Returns true if (testX, testY) is clear of every item in arr by at least `clearance`,
+        // using squared-distance comparisons (no sqrt) and no intermediate array allocation.
+        function checkClearAgainst(arr, testX, testY, clearance) {
+            for (let i = 0; i < arr.length; i++) {
+                let item = arr[i];
+                let dx = testX - item.x, dy = testY - item.y;
+                let r = (item.radius || 30) + clearance;
+                if (dx*dx + dy*dy < r*r) return false;
+            }
+            return true;
+        }
+
         function getSafeSpawnPos(baseX, ownRadius = 20, buffer = 50) {
             let safeX = baseX;
             for (let attempt = 0; attempt < 60; attempt++) {
@@ -1034,7 +1164,8 @@
                         if (hitDistX < (s.w/2 + clearance) && hitDistY < (s.h + clearance)) { isSafe = false; break; }
                     } else if (s.type === 'cloud') {
                         let dx = testX - s.x, dy = testY - s.y;
-                        if (Math.sqrt(dx*dx + dy*dy) < (s.radius + clearance)) { isSafe = false; break; }
+                        let cr = s.radius + clearance;
+                        if (dx*dx + dy*dy < cr*cr) { isSafe = false; break; }
                     } else if (s.type === 'barrier') {
                         let hitDistX = Math.abs(testX - s.x), hitDistY = Math.abs(testY - s.y);
                         if (hitDistX < (s.w/2 + clearance) && hitDistY < (s.h/2 + clearance)) { isSafe = false; break; }
@@ -1042,26 +1173,29 @@
                 }
                 if (!isSafe) { safeX += 150; continue; }
 
-                // 2. Every other collectible/portal already in the world — never let two stack
-                const allItems = [...powerupItems, ...portals, ...knowledgeNodes, ...scoreOrbs];
-                for (let item of allItems) {
-                    let dx = testX - item.x, dy = testY - item.y;
-                    let itemRad = item.radius || 30;
-                    if (Math.sqrt(dx*dx + dy*dy) < (itemRad + clearance)) { isSafe = false; break; }
-                }
+                // 2. Every other collectible/portal already in the world — never let two stack.
+                // Iterates the four source arrays directly rather than building a fresh merged
+                // array (a hidden allocation that previously happened on every one of up to 60
+                // attempts per spawn call).
+                isSafe = checkClearAgainst(powerupItems, testX, testY, clearance)
+                      && checkClearAgainst(portals, testX, testY, clearance)
+                      && checkClearAgainst(knowledgeNodes, testX, testY, clearance)
+                      && checkClearAgainst(scoreOrbs, testX, testY, clearance);
                 if (!isSafe) { safeX += 150; continue; }
 
                 // 3. Active boss hitbox
                 if (activeBoss) {
                     let dx = testX - activeBoss.x, dy = testY - activeBoss.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < (160 + clearance)) isSafe = false;
+                    let br = 160 + clearance;
+                    if (dx*dx + dy*dy < br*br) isSafe = false;
                 }
                 if (!isSafe) { safeX += 150; continue; }
 
                 // 4. Projectiles currently in flight near the spawn zone
                 for (let ep of enemyProjectiles) {
                     let dx = testX - ep.x, dy = testY - ep.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < ((ep.radius || 20) + clearance)) { isSafe = false; break; }
+                    let er = (ep.radius || 20) + clearance;
+                    if (dx*dx + dy*dy < er*er) { isSafe = false; break; }
                 }
                 if (!isSafe) { safeX += 150; continue; }
 
@@ -1093,8 +1227,11 @@
                 };
             } else if (obstacle.type === 'cloud') {
                 proximityFn = (item) => {
+                    // OPTIMIZATION: this is a pure magnitude comparison (no direction/unit-vector
+                    // needed), so it was paying for a sqrt() for no reason — squared comparison only.
                     let dx = item.x - obstacle.x, dy = item.y - obstacle.y;
-                    return Math.sqrt(dx*dx + dy*dy) > obstacle.radius + margin + (item.radius||20);
+                    let r = obstacle.radius + margin + (item.radius||20);
+                    return (dx*dx + dy*dy) > r*r;
                 };
             } else if (obstacle.type === 'barrier') {
                 proximityFn = (item) => {
@@ -1172,13 +1309,99 @@
             portals.push({ x: pos.x, y: pos.y, radius: 60, type: types[Math.floor(Math.random()*types.length)], active: true }); 
         }
         
+        // Cached gradient/style objects for the draw() hot path — declared at module top to avoid
+        // temporal dead zone: resize() references _horizonGradHeight before this line was reached.
+        // Scales a canvas font size to the smaller screen dimension so text stays proportional
+        // across phones (375px), tablets (768px), and large desktops (1920px+). Pass the size
+        // that looks correct at 800px (a middle-ground reference) and let it scale from there.
+        // Clamped to ensure legibility on both tiny phones and very large displays.
+        function cvFont(refSize, weight, family) {
+            let scaled = Math.max(10, Math.round(refSize * Math.min(width, height) / 800));
+            return `${weight ? weight + ' ' : ''}${scaled}px ${family || 'serif'}`;
+        }
+
+        function getHorizonGrad() {
+            if (_horizonGradHeight !== height) {
+                _horizonGrad = ctx.createLinearGradient(0, height/2 - 200, 0, height/2 + 200);
+                _horizonGrad.addColorStop(0, 'rgba(0,0,0,0)');
+                _horizonGrad.addColorStop(0.5, 'rgba(255,255,255,0.03)');
+                _horizonGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                _horizonGradHeight = height;
+            }
+            return _horizonGrad;
+        }
+
+        // OPTIMIZATION: the magnet-field visual used to call ctx.createRadialGradient(player.x,
+        // player.y, ...) directly inside draw() — a brand new gradient object allocated on every
+        // single frame for the entire ~10s duration the power-up is active. player.x never actually
+        // changes during gameplay (only player.y does), so this gradient is instead built ONCE,
+        // centered at the origin, and the draw call below uses ctx.translate(player.x, player.y) to
+        // reposition it cheaply instead of rebuilding it every frame.
+        let _magnetGrad = null;
+        function getMagnetGrad() {
+            if (!_magnetGrad) {
+                _magnetGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 400);
+                _magnetGrad.addColorStop(0, 'rgba(127, 255, 140, 0.1)');
+                _magnetGrad.addColorStop(1, 'rgba(127, 255, 140, 0)');
+            }
+            return _magnetGrad;
+        }
+        // instead of being discarded, so the highest-frequency allocation site in the game
+        // (explosions, sparks, trails) doesn't generate fresh garbage on every call. Pre-warmed
+        // during the preload phase (see warmObjectPools) so the very first explosion in a run
+        // doesn't need to allocate anything either.
+        let _particlePool = [];
         function spawnParticle(x, y, color, speedX, speedY, size, life, type='normal') { 
-		particles.push({x, y, color, speedX, speedY, size, life, maxLife: life, type: type});
-		if (particles.length > 300) particles.splice(0, particles.length - 300);
+		let p = _particlePool.pop();
+		if (p) {
+		    p.x=x; p.y=y; p.color=color; p.speedX=speedX; p.speedY=speedY; p.size=size; p.life=life; p.maxLife=life; p.type=type; p.text=undefined;
+		} else {
+		    p = {x, y, color, speedX, speedY, size, life, maxLife: life, type: type};
+		}
+		particles.push(p);
+		if (particles.length > 300) {
+		    let removed = particles.splice(0, particles.length - 300);
+		    for (let i=0; i<removed.length; i++) if (_particlePool.length < 300) _particlePool.push(removed[i]);
+		}
+		return p; // OPTIMIZATION: exposed so one-off callers (e.g. death-sequence text glyphs)
+		          // can set extra fields on a pooled particle instead of pushing a raw literal.
 	}
         
         function triggerScreenShake(amount) { screenShake = amount; }
-        function triggerExplosion(x, y, color, amount=30) { for(let i=0; i<amount; i++) spawnParticle(x, y, color, (Math.random()-0.5)*15, (Math.random()-0.5)*15, Math.random()*4+2, 60); }
+
+        // ============================================================
+        // ADAPTIVE PERFORMANCE SYSTEM
+        // Monitors real wall-clock frame time (sampled in loop(), independent of the gameplay
+        // dt/timeScale values, which are clamped and eased and therefore not a reliable signal
+        // of actual hardware headroom) on a rolling 2-second window. If frame time stays
+        // elevated, visual density is reduced one notch at a time; if it stays comfortably low,
+        // quality is restored one notch at a time. Only cosmetic, purely-decorative systems are
+        // affected — particle burst density and the number of background wave-field layers drawn.
+        // Nothing here can change collision outcomes, timing, scoring, AI, or physics, since none
+        // of those systems read these values.
+        // ============================================================
+        const PERF_TIERS = [
+            { particleMult: 0.42, waveLayers: 1, glowMult: 0.0  },  // tier 0: low-end hardware
+            { particleMult: 0.70, waveLayers: 2, glowMult: 0.6  },  // tier 1: mid-range
+            { particleMult: 1.00, waveLayers: 3, glowMult: 1.0  }   // tier 2: full quality (default/start)
+        ];
+        let perfTier = 2;
+        let _perfAccumMs = 0, _perfFrames = 0, _perfHoldFrames = 0;
+        function adaptivePerfSample(realFrameMs) {
+            _perfAccumMs += realFrameMs; _perfFrames++;
+            if (_perfHoldFrames > 0) _perfHoldFrames--;
+            if (_perfAccumMs < 2000) return;
+            let avgMs = _perfAccumMs / Math.max(1, _perfFrames);
+            _perfAccumMs = 0; _perfFrames = 0;
+            if (_perfHoldFrames > 0) return; // brief cooldown after any tier change to avoid oscillation
+            if (avgMs > 1000/40 && perfTier > 0) { perfTier--; _perfHoldFrames = 3; }
+            else if (avgMs < 1000/56 && perfTier < 2) { perfTier++; _perfHoldFrames = 3; }
+        }
+
+        function triggerExplosion(x, y, color, amount=30) {
+            let n = Math.max(4, Math.round(amount * PERF_TIERS[perfTier].particleMult));
+            for(let i=0; i<n; i++) spawnParticle(x, y, color, (Math.random()-0.5)*15, (Math.random()-0.5)*15, Math.random()*4+2, 60);
+        }
 
         function hexToRgb(hex) {
             hex = hex.replace('#', '');
@@ -1420,7 +1643,7 @@
             }
             draw(ctx) {
                 if(!this.active) return;
-                ctx.save(); ctx.translate(this.x, this.y); ctx.strokeStyle = this.color; ctx.lineWidth = 1; ctx.shadowBlur = 10; ctx.shadowColor = this.color;
+                ctx.save(); ctx.translate(this.x, this.y); ctx.strokeStyle = this.color; ctx.lineWidth = 1; ctx.shadowBlur = 10 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = this.color;
                 ctx.beginPath(); for(let n of this.nodes) { ctx.moveTo(0,0); ctx.lineTo(n.x, n.y); } ctx.stroke();
                 ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0,0, 30, 0, Math.PI*2); ctx.fill(); ctx.restore();
             }
@@ -1445,7 +1668,7 @@
             draw(ctx) {
                 if(!this.active) return;
                 ctx.save(); ctx.translate(this.x, height/2); let pulse = this.state === 'PHASE1' ? Math.random() * 50 : 0;
-                ctx.strokeStyle = this.color; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = this.color;
+                ctx.strokeStyle = this.color; ctx.lineWidth = 3; ctx.shadowBlur = 20 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = this.color;
                 for(let j=0; j<3; j++) {
                     ctx.beginPath(); let r = 100 + (j*30) + pulse;
                     for(let i=0; i<8; i++) {
@@ -1470,12 +1693,12 @@
             }
             draw(ctx) {
                 if(!this.active) return;
-                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = this.color; ctx.font = "24px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur = 15; ctx.shadowColor = this.color;
+                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = this.color; ctx.font = cvFont(24); ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur = 15 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = this.color;
                 let symbols = ['∫', '∂', 'λ', 'Δ', 'dW', 'dt'];
                 for(let j=1; j<=3; j++) {
                     let r = j * 60;
                     for(let i=0; i<symbols.length; i++) { let angle = (i/symbols.length) * Math.PI*2 + (this.timer*0.02*(j%2===0?1:-1)); ctx.fillText(symbols[i], Math.cos(angle)*r, Math.sin(angle)*r); }
-                } ctx.font = "50px serif"; ctx.fillStyle = "#fff"; ctx.fillText("I", 0, 0); ctx.restore();
+                } ctx.font = cvFont(50, 'bold'); ctx.fillStyle = "#fff"; ctx.fillText("I", 0, 0); ctx.restore();
             }
         }
 
@@ -1506,7 +1729,7 @@
             }
             draw(ctx) {
                 if(!this.active) return;
-                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = '#000'; ctx.strokeStyle = this.color; ctx.lineWidth = 4; ctx.shadowBlur = 30; ctx.shadowColor = this.color;
+                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = '#000'; ctx.strokeStyle = this.color; ctx.lineWidth = 4; ctx.shadowBlur = 30 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = this.color;
                 let glitch = (Math.random()-0.5)*40; ctx.beginPath(); ctx.moveTo(80, 0); ctx.lineTo(-80, -120 + glitch); ctx.lineTo(-40, 0); ctx.lineTo(-80, 120 - glitch); ctx.closePath(); ctx.fill(); ctx.stroke(); 
                 ctx.restore();
                 
@@ -1630,10 +1853,9 @@
 
                 ep.x += ep.vx * timeScale; ep.y += ep.vy * timeScale;
                 let dx = player.x - ep.x, dy = player.y - ep.y;
-                
-                if (Math.sqrt(dx*dx + dy*dy) < ep.radius + player.size) { 
+                let _epCR = ep.radius + player.size;
+                if (dx*dx + dy*dy < _epCR*_epCR) { 
                     if (processType === 'squared') {
-                        // QUADRATIC EXPANSION: Destroy projectile, gain score
                         triggerExplosion(ep.x, ep.y, '#ffd700', 15);
                         score += 300 * scoreMultiplier;
                         spawnFloatingText(ep.x, ep.y, `+${300 * Math.floor(scoreMultiplier)}`, '#ffd700');
@@ -1663,9 +1885,16 @@
                 } 
                 else if (s.type === 'cloud') {
                     s.rotation += 0.05 * timeScale;
-                    let dx = player.x - s.x, dy = player.y - s.y; distToPlayer = Math.sqrt(dx*dx + dy*dy);
-                    if (distToPlayer < s.radius + player.size - 10) hit = true;
-                    if (distToPlayer < s.radius + player.size + 40 && !hit && !s.nearMissed && player.x > s.x) { s.nearMissed = true; triggerNearMiss(); }
+                    let dx = player.x - s.x, dy = player.y - s.y; let distSq = dx*dx + dy*dy;
+                    let _cHit = s.radius + player.size - 10; let _cNear = s.radius + player.size + 40;
+                    if (distSq < _cHit*_cHit) hit = true;
+                    // OPTIMIZATION: this used to call Math.sqrt(distSq) purely to compare the result
+                    // against the 300px "dangerClose" threshold below — a squared comparison
+                    // (300*300 = 90000) does the same job with no sqrt. distToPlayer is left at its
+                    // default (999) so the shared spike/barrier check after the loop doesn't fire
+                    // twice for this branch.
+                    if (distSq < 90000) dangerClose = true;
+                    if (distSq < _cNear*_cNear && !hit && !s.nearMissed && player.x > s.x) { s.nearMissed = true; triggerNearMiss(); }
                 }
                 else if (s.type === 'barrier') {
                     s.h += Math.sin(activeFrameCount*0.1)*5 * timeScale; let hw = s.w/2, hh = s.h/2;
@@ -1697,17 +1926,23 @@
                 if (s.x < -300 && obstacles[i]) obstacles.splice(i, 1);
             }
 
-            if(timeScale > 0 && !isDead && !isRecovering) dmgOverlay.style.boxShadow = dangerClose ? `inset 0 0 ${100 + Math.sin(activeFrameCount*0.2)*50}px var(--accent-red)` : "inset 0 0 0px var(--accent-red)";
+            if(timeScale > 0 && !isDead && !isRecovering) {
+                if (dangerClose) {
+                    dmgOverlay.style.boxShadow = `inset 0 0 ${100 + Math.sin(activeFrameCount*0.2)*50}px var(--accent-red)`;
+                    window._dmgOverlayWasOff = false;
+                } else if (!window._dmgOverlayWasOff) {
+                    dmgOverlay.style.boxShadow = "inset 0 0 0px var(--accent-red)";
+                    window._dmgOverlayWasOff = true;
+                }
+            }
 
             if (playerHit && timeScale > 0 && !isDead && !isRecovering) {
                 if (player.hasShield) {
-                    console.log("[DEBUG] Shield consumed.");
                     player.hasShield = false; playSfx('shieldDestroyed'); triggerExplosion(player.x, player.y, '#00f3ff', 40); triggerScreenShake(20);
                     queuePopup("BUFFER SHATTERED", "Extreme realization absorbed.", POPUP_PRIORITY.EVENT, 2200);
-                
                     for(let j=enemyProjectiles.length-1; j>=0; j--) {
                         let ddx = player.x - enemyProjectiles[j].x, ddy = player.y - enemyProjectiles[j].y;
-                        if(Math.sqrt(ddx*ddx + ddy*ddy) < 200) enemyProjectiles.splice(j, 1);
+                        if(ddx*ddx + ddy*ddy < 40000) enemyProjectiles.splice(j, 1); // 200² = 40000
                     }
                 } else if (player.hasRevive) {
                     console.log("[DEBUG] Martingale consumed.");
@@ -1746,12 +1981,13 @@
             for(let i=scoreOrbs.length-1; i>=0; i--) {
                 let orb = scoreOrbs[i];
                 if (processType === 'magnet') {
-                    let dx = player.x - orb.x, dy = player.y - orb.y; let d = Math.sqrt(dx*dx + dy*dy);
-                    if (d < 400) { orb.x += (dx/d) * 20 * timeScale; orb.y += (dy/d) * 20 * timeScale; } else { orb.x -= scrollSpeed * timeScale; }
+                    let dx = player.x - orb.x, dy = player.y - orb.y; let dSq = dx*dx + dy*dy;
+                    if (dSq < 160000) { let d = Math.sqrt(dSq); orb.x += (dx/d) * 20 * timeScale; orb.y += (dy/d) * 20 * timeScale; } else { orb.x -= scrollSpeed * timeScale; }
                 } else { orb.x -= scrollSpeed * timeScale; }
 
                 let dx = player.x - orb.x, dy = player.y - orb.y;
-                if(orb.active && Math.sqrt(dx*dx + dy*dy) < orb.radius + player.size) {
+                let _oCR = orb.radius + player.size;
+                if(orb.active && dx*dx + dy*dy < _oCR*_oCR) {
                     orb.active = false; score += 200 * scoreMultiplier; playSfx('point');
                     spawnFloatingText(orb.x, orb.y, `+${200 * Math.floor(scoreMultiplier)}`, '#ffd700');
                     scoreOrbs.splice(i, 1); continue;
@@ -1762,12 +1998,13 @@
             for(let i=knowledgeNodes.length-1; i>=0; i--) {
                 let kn = knowledgeNodes[i]; 
                 if (processType === 'magnet') {
-                    let dx = player.x - kn.x, dy = player.y - kn.y; let d = Math.sqrt(dx*dx + dy*dy);
-                    if (d < 400) { kn.x += (dx/d) * 20 * timeScale; kn.y += (dy/d) * 20 * timeScale; } else { kn.x -= scrollSpeed * timeScale; }
+                    let dx = player.x - kn.x, dy = player.y - kn.y; let dSq = dx*dx + dy*dy;
+                    if (dSq < 160000) { let d = Math.sqrt(dSq); kn.x += (dx/d) * 20 * timeScale; kn.y += (dy/d) * 20 * timeScale; } else { kn.x -= scrollSpeed * timeScale; }
                 } else { kn.x -= scrollSpeed * timeScale; }
 
                 let dx = player.x - kn.x, dy = player.y - kn.y;
-                if(kn.active && Math.sqrt(dx*dx + dy*dy) < kn.radius + player.size) {
+                let _knCR = kn.radius + player.size;
+                if(kn.active && dx*dx + dy*dy < _knCR*_knCR) {
                     kn.active = false; score += 1000 * scoreMultiplier; stats.nodes++; playSfx('nodes');
                     triggerExplosion(kn.x, kn.y, envRules.theme.p); spawnFloatingText(kn.x, kn.y, `+${1000 * Math.floor(scoreMultiplier)}`, envRules.theme.p);
                     unlockAchievement("NODE DECRYPTED", "Data point secured.", "∫");
@@ -1778,7 +2015,8 @@
             for(let i=portals.length-1; i>=0; i--) {
                 let p = portals[i]; p.x -= scrollSpeed * timeScale;
                 let dx = player.x - p.x, dy = player.y - p.y;
-                if(p.active && Math.sqrt(dx*dx + dy*dy) < p.radius + player.size) {
+                let _pCR = p.radius + player.size;
+                if(p.active && dx*dx + dy*dy < _pCR*_pCR) {
                     p.active = false; applyTransformation(p.type);
                     for(let j=0; j<20; j++) spawnParticle(p.x, p.y, 'var(--accent-gold)', (Math.random()-0.5)*15, (Math.random()-0.5)*15, 3, 40);
                 }
@@ -1808,13 +2046,13 @@
             for(let i=powerupItems.length-1; i>=0; i--) {
                 let p = powerupItems[i]; 
                 if (processType === 'magnet') {
-                    let dx = player.x - p.x, dy = player.y - p.y; let d = Math.sqrt(dx*dx + dy*dy);
-                    if (d < 400) { p.x += (dx/d) * 20 * timeScale; p.y += (dy/d) * 20 * timeScale; } else { p.x -= scrollSpeed * timeScale; }
+                    let dx = player.x - p.x, dy = player.y - p.y; let dSq = dx*dx + dy*dy;
+                    if (dSq < 160000) { let d = Math.sqrt(dSq); p.x += (dx/d) * 20 * timeScale; p.y += (dy/d) * 20 * timeScale; } else { p.x -= scrollSpeed * timeScale; }
                 } else { p.x -= scrollSpeed * timeScale; }
 
                 let dx = player.x - p.x, dy = player.y - p.y;
-                if(Math.sqrt(dx*dx + dy*dy) < p.radius + player.size) {
-                    console.log("[DEBUG] Powerup collected:", p.type);
+                let _puCR = p.radius + player.size;
+                if(dx*dx + dy*dy < _puCR*_puCR) {
                     if (p.type === 'shield') {
                         player.hasShield = true; playSfx('upgrade');
                         triggerExplosion(p.x, p.y, '#00f3ff'); spawnFloatingText(p.x, p.y - 30, "VOLATILITY BUFFER", '#00f3ff');
@@ -1851,7 +2089,7 @@
                 if (activeBoss && activeBoss.state === 'PHASE1') {
                     let hitDist = activeBoss.id === 'swan' ? 80 : 50; 
                     let dx = p.x - activeBoss.x, dy = p.y - activeBoss.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < hitDist) { activeBoss.takeDamage(p.dmg); if(p.type !== 'piercing') { playerProjectiles.splice(i, 1); continue; } }
+                    if (dx*dx + dy*dy < hitDist*hitDist) { activeBoss.takeDamage(p.dmg); if(p.type !== 'piercing') { playerProjectiles.splice(i, 1); continue; } }
                 }
                 if (p.x > width + 50) playerProjectiles.splice(i, 1);
             }
@@ -1861,7 +2099,7 @@
                 p.x += p.speedX * timeScale; 
                 p.y += p.speedY * timeScale; 
                 p.life -= timeScale;
-                if(p.life <= 0) particles.splice(i, 1);
+                if(p.life <= 0) { particles.splice(i, 1); if (_particlePool.length < 300) _particlePool.push(p); }
             }
 
             handleCollisions();
@@ -1871,8 +2109,10 @@
             let totalMultiplier = scoreMultiplier * (processType === 'log' ? 3.0 : (processType === 'squared' ? 2.0 : 1.0));
 
 	    let scoreStr = Math.floor(score).toLocaleString();
-            let scoreEl = document.getElementById('ui-total-score');
-            if (scoreEl) scoreEl.innerText = scoreStr;
+            if (window.lastScoreDisplayStr !== scoreStr) {
+                if (uiTotalScore) uiTotalScore.innerText = scoreStr;
+                window.lastScoreDisplayStr = scoreStr;
+            }
 
             let actualTimeSeconds = survivalFrames / 60;
             let timeStr = actualTimeSeconds.toFixed(2) + "s";
@@ -1954,40 +2194,42 @@
 
             ctx.globalCompositeOperation = 'lighter';
 
-            // Horizon Gradient
-            let horizonGrad = ctx.createLinearGradient(0, height/2 - 200, 0, height/2 + 200);
-            horizonGrad.addColorStop(0, 'rgba(0,0,0,0)');
-            horizonGrad.addColorStop(0.5, `rgba(255,255,255,0.03)`);
-            horizonGrad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = horizonGrad; ctx.fillRect(0, 0, width, height);
+            // Horizon Gradient (cached — only rebuilt on resize)
+            ctx.fillStyle = getHorizonGrad(); ctx.fillRect(0, 0, width, height);
 
-            // Atmosphere Fog
-            ctx.fillStyle = `rgba(15, 18, 40, 0.25)`; ctx.fillRect(0, 0, width, height);
+            // Atmosphere Fog (static string — no allocation per frame)
+            ctx.fillStyle = 'rgba(15,18,40,0.25)'; ctx.fillRect(0, 0, width, height);
 
-            // CONTINUOUS STOCHASTIC WAVE FIELD — layered probability currents whose phase advances via
-            // a mean-reverting velocity and whose amplitude eases toward its target (see updateAmbientVisuals),
-            // so nothing here ever snaps regardless of boss fights, storms, or transformations.
-            for (let layer = 0; layer < 3; layer++) {
+            // CONTINUOUS STOCHASTIC WAVE FIELD — layered probability currents
+            const _wlw = [20, 15, 10];
+            for (let layer = 0; layer < PERF_TIERS[perfTier].waveLayers; layer++) {
                 ctx.beginPath();
                 let freq = 0.005 * (1 + layer * 0.35);
+                let ph = waveField.phase[layer], amp = waveField.amp[layer];
+                let ph14 = ph * 1.4;
+                let ampMini = amp * 0.22;
+                let hw = height / 2;
                 for (let x = 0; x <= width; x += 26) {
-                    let yWave = height/2
-                        + Math.sin(x*freq + waveField.phase[layer]) * waveField.amp[layer]
-                        + Math.sin(x*freq*2.7 - waveField.phase[layer]*1.4) * waveField.amp[layer] * 0.22;
+                    let yWave = hw
+                        + Math.sin(x * freq + ph) * amp
+                        + Math.sin(x * freq * 2.7 - ph14) * ampMini;
                     if (x === 0) ctx.moveTo(x, yWave); else ctx.lineTo(x, yWave);
                 }
-                let alpha = Math.max(0, (0.022 + sigma*0.005) * (1 - layer*0.3));
-                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-                ctx.lineWidth = 20 - layer*5;
+                let alpha = Math.max(0, (0.022 + sigma * 0.005) * (1 - layer * 0.3));
+                ctx.strokeStyle = `rgba(255,255,255,${alpha.toFixed(3)})`;
+                ctx.lineWidth = _wlw[layer];
                 ctx.stroke();
             }
 
             // Magnet Field visual
             if (processType === 'magnet') {
-                ctx.beginPath(); ctx.arc(player.x, player.y, 400, 0, Math.PI*2);
-                let grad = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, 400);
-                grad.addColorStop(0, 'rgba(127, 255, 140, 0.1)'); grad.addColorStop(1, 'rgba(127, 255, 140, 0)');
-                ctx.fillStyle = grad; ctx.fill();
+                // OPTIMIZATION: was `ctx.createRadialGradient(player.x, player.y, ...)` here every
+                // frame (see getMagnetGrad() above for why translate+cache is safe/equivalent).
+                ctx.save();
+                ctx.translate(player.x, player.y);
+                ctx.beginPath(); ctx.arc(0, 0, 400, 0, Math.PI*2);
+                ctx.fillStyle = getMagnetGrad(); ctx.fill();
+                ctx.restore();
             }
 
             for(let vz of volZones) {
@@ -2017,7 +2259,7 @@
                 if(!orb.active) continue;
                 ctx.save(); ctx.translate(orb.x, orb.y);
                 ctx.fillStyle = `rgba(255, 215, 0, ${0.2 + Math.random()*0.2})`; ctx.beginPath(); ctx.arc(0, 0, orb.radius + 10 + Math.random()*5, 0, Math.PI*2); ctx.fill();
-                ctx.shadowBlur = 15; ctx.shadowColor = '#ffd700'; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, orb.radius, 0, Math.PI*2); ctx.fill();
+                ctx.shadowBlur = 15 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = '#ffd700'; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, orb.radius, 0, Math.PI*2); ctx.fill();
                 ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.shadowBlur = 0;
                 for (let j=0; j<2; j++) { ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo((Math.random()-0.5)*15, (Math.random()-0.5)*15); ctx.lineTo((Math.random()-0.5)*20, (Math.random()-0.5)*20); ctx.stroke(); }
                 ctx.restore();
@@ -2026,7 +2268,7 @@
             for(let kn of knowledgeNodes) {
                 if(!kn.active) continue;
                 ctx.beginPath(); ctx.arc(kn.x, kn.y, kn.radius, 0, Math.PI*2); ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fill();
-                ctx.strokeStyle = envRules.theme.p; ctx.lineWidth = 2; ctx.shadowBlur = 15; ctx.shadowColor = envRules.theme.p; ctx.stroke(); ctx.shadowBlur = 0;
+                ctx.strokeStyle = envRules.theme.p; ctx.lineWidth = 2; ctx.shadowBlur = 15 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = envRules.theme.p; ctx.stroke(); ctx.shadowBlur = 0;
                 ctx.beginPath(); ctx.arc(kn.x, kn.y, kn.radius * 0.4, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill();
             }
 
@@ -2046,7 +2288,7 @@
 
                 ctx.strokeStyle = pColor; 
                 ctx.lineWidth = p.isBossDrop ? 4 : 3; 
-                ctx.shadowBlur = p.isBossDrop ? 30 : 20; 
+                ctx.shadowBlur = (p.isBossDrop ? 30 : 20) * PERF_TIERS[perfTier].glowMult; 
                 ctx.shadowColor = pColor;
                 
                 if(p.type === 'shield' || p.type === 'revive') {
@@ -2062,7 +2304,7 @@
                 }
                 
                 ctx.rotate(-activeFrameCount * 0.05);
-                ctx.fillStyle = pColor; ctx.font = "bold 14px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur=15;
+                ctx.fillStyle = pColor; ctx.font = cvFont(14, 'bold'); ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur = 15 * PERF_TIERS[perfTier].glowMult;
                 ctx.fillText(pText1, 0, -radius*1.6); 
                 ctx.fillText(pText2, 0, radius*1.6); 
                 ctx.restore();
@@ -2073,14 +2315,14 @@
                 ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(activeFrameCount * 0.02);
                 let pTheme = PORTAL_DEFS[p.type];
                 ctx.strokeStyle = pTheme ? pTheme.stroke : 'var(--accent-gold)'; 
-                ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = pTheme ? pTheme.shadow : 'var(--accent-gold)';
+                ctx.lineWidth = 3; ctx.shadowBlur = 20 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = pTheme ? pTheme.shadow : 'var(--accent-gold)';
                 ctx.beginPath(); ctx.moveTo(0, -p.radius); for(let i=1; i<8; i++) ctx.lineTo(Math.cos(i*Math.PI*2/8 - Math.PI/2)*p.radius, Math.sin(i*Math.PI*2/8 - Math.PI/2)*p.radius); ctx.closePath(); ctx.stroke();
                 
                 ctx.rotate(-activeFrameCount * 0.05);
                 ctx.fillStyle = pTheme ? pTheme.shadow : '#fff'; ctx.globalAlpha = 0.3 + Math.sin(activeFrameCount * 0.1)*0.2;
                 ctx.beginPath(); ctx.arc(0, 0, p.radius * 0.5, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1.0;
                 
-                ctx.fillStyle = pTheme ? pTheme.stroke : '#fff'; ctx.font = "12px serif";
+                ctx.fillStyle = pTheme ? pTheme.stroke : '#fff'; ctx.font = cvFont(12);
                 let syms = pTheme ? pTheme.syms : ['∫','σ','μ'];
                 for(let i=0; i<3; i++) { ctx.fillText(syms[i], Math.cos(i*Math.PI*2/3)*p.radius*0.7, Math.sin(i*Math.PI*2/3)*p.radius*0.7); }
 
@@ -2093,12 +2335,12 @@
                 if (s.type === 'spike') {
                     ctx.beginPath(); ctx.moveTo(s.vertices[0].x, s.vertices[0].y); for(let i=1; i<s.vertices.length; i++) ctx.lineTo(s.vertices[i].x, s.vertices[i].y); ctx.closePath();
                     ctx.fillStyle = inItoRealm ? 'rgba(176, 0, 255, 0.1)' : 'rgba(0, 243, 255, 0.1)'; ctx.fill();
-                    ctx.strokeStyle = envRules.theme.s; ctx.lineWidth = 2; ctx.shadowBlur = 15; ctx.shadowColor = envRules.theme.s; ctx.stroke(); ctx.shadowBlur = 0; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.stroke();
+                    ctx.strokeStyle = envRules.theme.s; ctx.lineWidth = 2; ctx.shadowBlur = 15 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = envRules.theme.s; ctx.stroke(); ctx.shadowBlur = 0; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.stroke();
                     if(Math.random() < 0.3) { ctx.beginPath(); ctx.moveTo(s.vertices[1].x, s.vertices[1].y); ctx.lineTo(s.vertices[1].x + (Math.random()-0.5)*40, s.vertices[1].y + (Math.random()-0.5)*40); ctx.strokeStyle = '#fff'; ctx.stroke(); }
                 } 
                 else if (s.type === 'cloud') {
                     ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.rotation);
-                    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#fff';
+                    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 3; ctx.shadowBlur = 20 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = '#fff';
                     for(let i=0; i<3; i++) { ctx.beginPath(); ctx.arc(0,0, s.radius - i*15, i, Math.PI + i); ctx.stroke(); } ctx.restore();
                 }
                 else if (s.type === 'barrier') {
@@ -2113,15 +2355,15 @@
                     if(ep.trail) {
                         ctx.beginPath(); if(ep.trail.length > 0) ctx.moveTo(ep.trail[0].x | 0, ep.trail[0].y | 0);
                         for(let i=1; i<ep.trail.length; i++) ctx.lineTo(ep.trail[i].x | 0, ep.trail[i].y | 0);
-                        ctx.strokeStyle = 'rgba(255, 0, 255, 0.5)'; ctx.lineWidth = ep.radius; ctx.shadowBlur = 20; ctx.shadowColor = '#b000ff'; ctx.stroke(); ctx.shadowBlur = 0;
+                        ctx.strokeStyle = 'rgba(255, 0, 255, 0.5)'; ctx.lineWidth = ep.radius; ctx.shadowBlur = 20 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = '#b000ff'; ctx.stroke(); ctx.shadowBlur = 0;
                     }
                     ctx.beginPath(); ctx.arc(ep.x | 0, ep.y | 0, ep.radius, 0, TWO_PI);
-                    ctx.fillStyle = '#000'; ctx.strokeStyle = '#ff00ff'; ctx.lineWidth = 5; ctx.shadowBlur = 30; ctx.shadowColor = '#b000ff'; ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#000'; ctx.strokeStyle = '#ff00ff'; ctx.lineWidth = 5; ctx.shadowBlur = 30 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = '#b000ff'; ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
                     for(let i=0; i<3; i++) { ctx.fillStyle = '#00f3ff'; ctx.fillRect((ep.x + (Math.random()-0.5)*ep.radius) | 0, (ep.y + (Math.random()-0.5)*ep.radius) | 0, 10, 5); }
                 } else {
                     ctx.beginPath(); ctx.arc(ep.x | 0, ep.y | 0, ep.radius, 0, TWO_PI);
                     ctx.fillStyle = ep.type==='void' ? '#000' : 'rgba(255,255,255,0.8)'; 
-                    ctx.strokeStyle = ep.color; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = ep.color;
+                    ctx.strokeStyle = ep.color; ctx.lineWidth = 3; ctx.shadowBlur = 20 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = ep.color;
                     ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
                 }
             }
@@ -2138,8 +2380,8 @@
                     ctx.beginPath(); ctx.arc(px, py, (1 - (p.life / p.maxLife)) * width * 1.5, 0, TWO_PI); ctx.stroke();
                 } else if (p.text) {
                     ctx.fillStyle = p.color; ctx.globalAlpha = p.life / p.maxLife;
-                    ctx.font = "30px serif"; ctx.textAlign = "center"; ctx.textBaseline="middle"; 
-                    ctx.shadowBlur = 10; ctx.shadowColor = p.color;
+                    ctx.font = cvFont(30); ctx.textAlign = "center"; ctx.textBaseline="middle"; 
+                    ctx.shadowBlur = 10 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = p.color;
                     ctx.fillText(p.text, px, py); ctx.shadowBlur = 0;
                 } else {
                     ctx.fillStyle = p.color; ctx.globalAlpha = p.life / p.maxLife;
@@ -2156,7 +2398,7 @@
                 ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 2, 0, Math.PI*2);
                 ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
                 ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2);
-                ctx.fillStyle = p.color; ctx.shadowBlur = 12; ctx.shadowColor = p.color; ctx.fill(); ctx.shadowBlur = 0;
+                ctx.fillStyle = p.color; ctx.shadowBlur = 12 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = p.color; ctx.fill(); ctx.shadowBlur = 0;
             }
             ctx.restore();
 
@@ -2177,13 +2419,13 @@
                 // Shield Render
                 if (player.hasShield) {
                     ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 15 + Math.sin(activeFrameCount*0.1)*5, 0, Math.PI*2);
-                    ctx.strokeStyle = 'rgba(0, 243, 255, 0.8)'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#00f3ff'; ctx.stroke();
+                    ctx.strokeStyle = 'rgba(0, 243, 255, 0.8)'; ctx.lineWidth = 3; ctx.shadowBlur = 20 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = '#00f3ff'; ctx.stroke();
                     ctx.fillStyle = 'rgba(0, 243, 255, 0.1)'; ctx.fill(); ctx.shadowBlur = 0;
                     
                     ctx.save();
                     ctx.translate(player.x, player.y);
                     ctx.rotate(activeFrameCount * 0.05);
-                    ctx.fillStyle = '#fff'; ctx.font = '12px serif'; ctx.textAlign = 'center'; ctx.textBaseline='middle'; ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff'; ctx.font = cvFont(12); ctx.textAlign = 'center'; ctx.textBaseline='middle'; ctx.shadowBlur = 0;
                     let orbitR = player.size + 25;
                     ctx.fillText('σSₜdWₜ', 0, -orbitR);
                     ctx.fillText('Var(X)=σ²', 0, orbitR);
@@ -2202,7 +2444,10 @@
         function drawPlayerShip(ctx, ps) {
             const def = SKIN_DEFS[selectedSkin] || SKIN_DEFS['mu-navigator'];
             const cx = player.x, cy = player.y;
-            ctx.shadowBlur = 20; ctx.shadowColor = isSpaceDown ? '#ffffff' : def.glow;
+            // OPTIMIZATION: this shadowBlur applies to the player ship, which is drawn on essentially
+            // every single frame of gameplay — of every shadowBlur site in the game, this one had the
+            // highest guaranteed frequency, so wiring it to the adaptive glowMult tier matters most.
+            ctx.shadowBlur = 20 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = isSpaceDown ? '#ffffff' : def.glow;
 
             switch (def.shape) {
                 case 'pentagon-crystal': {
@@ -2236,9 +2481,9 @@
                     ctx.quadraticCurveTo(-30*s, -30*s, -10*s, 5*s);
                     ctx.quadraticCurveTo(10*s, 40*s, 30*s, -10*s);
                     ctx.quadraticCurveTo(50*s, -60*s, 50*s, 15*s);
-                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.shadowBlur = 10; ctx.shadowColor = def.glow; ctx.stroke(); ctx.shadowBlur = 0;
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.shadowBlur = 10 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = def.glow; ctx.stroke(); ctx.shadowBlur = 0;
                     ctx.beginPath(); ctx.arc(0, 0, ps*0.4, 0, TWO_PI);
-                    ctx.fillStyle = '#fff'; ctx.shadowBlur = 14; ctx.shadowColor = '#fff'; ctx.fill(); ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff'; ctx.shadowBlur = 14 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = '#fff'; ctx.fill(); ctx.shadowBlur = 0;
                     ctx.restore();
                     break;
                 }
@@ -2268,12 +2513,19 @@
                     ctx.beginPath();
                     for (let i=0; i<8; i++) { let ang=(i/8)*TWO_PI - Math.PI/8; let r=ps*1.15; if(i===0) ctx.moveTo(Math.cos(ang)*r, Math.sin(ang)*r); else ctx.lineTo(Math.cos(ang)*r, Math.sin(ang)*r); }
                     ctx.closePath();
-                    ctx.strokeStyle = def.color; ctx.lineWidth = 2.5; ctx.shadowBlur = 14; ctx.shadowColor = def.color; ctx.stroke(); ctx.shadowBlur = 0;
+                    ctx.strokeStyle = def.color; ctx.lineWidth = 2.5; ctx.shadowBlur = 14 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = def.color; ctx.stroke(); ctx.shadowBlur = 0;
                     ctx.restore();
 
                     ctx.beginPath(); ctx.arc(cx, cy, ps*0.55, 0, TWO_PI);
-                    ctx.fillStyle = def.glow; ctx.globalAlpha = 0.45 + Math.sin(activeFrameCount*0.08)*0.2; ctx.filter = 'blur(3px)'; ctx.fill();
-                    ctx.filter = 'none'; ctx.globalAlpha = 1;
+                    // OPTIMIZATION: this used ctx.filter = 'blur(3px)' — a canvas-level compositing
+                    // blur applied to a fill on every single frame the player uses a 'portal'-shape
+                    // skin (8 of the 20 skins). ctx.filter is at least as expensive as shadowBlur
+                    // (often more, since it's a full-surface convolution rather than a shadow pass)
+                    // and had no adaptive scaling at all. Dropped entirely rather than throttled,
+                    // since the soft edge it added was purely decorative on top of an already-visible
+                    // glowing core.
+                    ctx.fillStyle = def.glow; ctx.globalAlpha = 0.45 + Math.sin(activeFrameCount*0.08)*0.2; ctx.fill();
+                    ctx.globalAlpha = 1;
 
                     if (def.orbitSyms) {
                         ctx.save(); ctx.translate(cx, cy); ctx.rotate(-activeFrameCount * 0.013);
@@ -2373,7 +2625,7 @@
                     ctx.beginPath(); ctx.moveTo(cx, cy - ps); ctx.lineTo(cx + ps, cy + ps); ctx.lineTo(cx - ps, cy + ps);
                     ctx.closePath(); ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.stroke();
                     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
-                    ctx.fillStyle = '#ffffff'; ctx.font = '20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillStyle = '#ffffff'; ctx.font = cvFont(20, 'bold'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                     ctx.fillText(def.glyph, cx, cy + 5);
                 }
             }
@@ -2393,9 +2645,11 @@
             // anywhere else. Clamped to guard against huge single-frame jumps after a tab-switch
             // or other stall (so the game "lags" rather than visibly teleports/skips).
             if (typeof rafTs !== 'number') rafTs = performance.now();
-            let _frameMs = (_lastFrameTs != null) ? (rafTs - _lastFrameTs) : (1000/60);
+            let _isFirstFrame = (_lastFrameTs == null);
+            let _frameMs = _isFirstFrame ? (1000/60) : (rafTs - _lastFrameTs);
             _lastFrameTs = rafTs;
             _dt = Math.min(Math.max(_frameMs, 0) / (1000/60), 3);
+            if (!_isFirstFrame) adaptivePerfSample(_frameMs);
 
             if (isRecovering) {
                 recoveryTimer -= _dt;
@@ -2424,8 +2678,53 @@
             updateHUD(); draw(); requestAnimationFrame(loop);
         }
 
+        // ============================================================
+        // ENGINE PRELOAD PHASE
+        // Runs during the intro sequence's visible "initializing..." messages. Uses that real
+        // time window (which already existed purely as a visual flourish) to perform the
+        // genuinely expensive first-time setup below, so none of it has to happen during actual
+        // gameplay — where it would otherwise show up as first-use stutters, audio delays, or
+        // rendering hitches.
+        // ============================================================
+        function warmObjectPools() {
+            // Pre-fills the particle recycling pool so the very first explosion of the run
+            // doesn't need to allocate any fresh objects.
+            for (let i = 0; i < 100; i++) {
+                _particlePool.push({x:0,y:0,color:'#fff',speedX:0,speedY:0,size:1,life:1,maxLife:1,type:'normal',text:undefined});
+            }
+        }
+        function warmRenderingPipeline() {
+            // Exercises the same Canvas2D state changes used throughout real gameplay (gradients,
+            // shadowBlur glows, additive compositing, arcs, text) off-screen, so the GPU/driver and
+            // the browser's internal caches are already warm before the player's first real frame.
+            try {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                let g = ctx.createRadialGradient(0, 0, 1, 0, 0, 50);
+                g.addColorStop(0, 'rgba(255,255,255,0.5)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = g;
+                ctx.shadowBlur = 20; ctx.shadowColor = '#7fff8c';
+                ctx.beginPath(); ctx.arc(-9999, -9999, 20, 0, Math.PI*2); ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.font = "20px serif"; ctx.fillText('μ', -9999, -9999);
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.restore();
+            } catch(e) {}
+        }
+        function warmMiscSystems() {
+            // Light JIT warmup for the procedural noise function sampled continuously during play.
+            for (let i = 0; i < 20; i++) randomNormal();
+        }
+        function runEnginePreload() {
+            warmObjectPools();
+            warmRenderingPipeline();
+            warmMiscSystems();
+            preloadAllAudio();
+        }
+
         function runIntroSequence() {
             isIntro = true; hudContainer.style.opacity = 0; introSeq.style.opacity = 1;
+            runEnginePreload();
             setTimeout(() => { introSeq.innerText = "INITIALIZING STOCHASTIC PROCESS..."; }, 500);
             setTimeout(() => { introSeq.innerText = "CALCULATING DRIFT..."; hudContainer.style.opacity = 1; }, 1500);
             setTimeout(() => { introSeq.innerText = "VOLATILITY DETECTED..."; }, 2500);
