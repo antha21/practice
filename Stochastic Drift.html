@@ -153,7 +153,10 @@
             opacity: 0; filter: blur(14px) saturate(0.15) brightness(1.6);
             transition: opacity 0.45s ease, filter 0.45s ease;
         }
-        
+	.equation-hud.long-eq {
+ 	   font-size: clamp(0.75rem, 2vw, 1.8rem);
+	}
+
         #transform-timer-container { width: 80%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; opacity: 0; transition: opacity 0.3s; overflow: hidden; }
         #transform-timer-bar { height: 100%; width: 100%; background: #fff; box-shadow: 0 0 10px #fff; }
 
@@ -420,7 +423,7 @@
             <div class="pra-stat"><span>NEAR MISSES</span><span id="pra-misses">0</span></div>
             <div class="pra-stat"><span>BOSSES DEFEATED</span><span id="pra-bosses">0</span></div>
         </div>
-        <button class="btn-restart" onclick="playSfx('select'); window.location.href='index.html'">RETURN TO MAIN MENU</button>
+        <button class="btn-restart" onclick="playSfx('select'); window.location.href='index Sde.html'">RETURN TO MAIN MENU</button>
     </div>
 
     <div id="phase-indicator">PHASE 1: CALIBRATION</div>
@@ -528,11 +531,14 @@
         // dedicated notify-flag so it can never repeat, even if the underlying unlock flag was set
         // by separate code (e.g. Boss.onDefeat) moments earlier. Resetting save data clears every
         // stochastic_* key, which is the only way this can ever fire again for a given skin.
-        function tryUnlockSkin(skinId) {
-            try {
-                let notifyKey = 'stochastic_skin_notified_' + skinId;
-                if (localStorage.getItem(notifyKey) === 'true') return;
-                localStorage.setItem(notifyKey, 'true');
+        const _skinUnlockNotifyCache = new Set();
+	function tryUnlockSkin(skinId) {
+    		if (_skinUnlockNotifyCache.has(skinId)) return; // confirmed already this session — skip storage entirely
+    		try {
+        		let notifyKey = 'stochastic_skin_notified_' + skinId;
+        		if (localStorage.getItem(notifyKey) === 'true') { _skinUnlockNotifyCache.add(skinId); return; }
+        		localStorage.setItem(notifyKey, 'true');
+        		_skinUnlockNotifyCache.add(skinId);
                 let unlockKey = SKIN_BOSS_MAP[skinId] ? ('stochastic_boss_' + SKIN_BOSS_MAP[skinId]) : ('stochastic_skin_' + skinId);
                 if (localStorage.getItem(unlockKey) !== 'true') localStorage.setItem(unlockKey, 'true');
                 let def = SKIN_DEFS[skinId];
@@ -545,21 +551,24 @@
         // the moment a threshold is crossed. Node-based skins (Wiener Entity, Martingale Construct,
         // Tail Risk Incarnate, Chaos Attractor) are earned in the Knowledge Vault's Concept Network
         // instead, and are picked up here automatically the moment that page mirrors their flag.
-        function checkSkinUnlocks() {
-            try {
-                let liveDistance = parseInt(localStorage.getItem('stochastic_dist') || '0') + distance;
-                if (liveDistance >= 15000) tryUnlockSkin('sigma-volatility-core');
-                if (liveDistance >= 30000) tryUnlockSkin('singularity-process');
-                if (score >= 100000) tryUnlockSkin('infinite-variance');
-                if (stats.nearMisses >= 100) tryUnlockSkin('stochastic-ghost');
-
-                // Boss trophy skins already unlock entirely on their own (Boss.onDefeat is untouched) —
-                // this only surfaces the same "SKIN UNLOCKED" notification for them, never alters them.
-                for (let skinId in SKIN_BOSS_MAP) {
-                    if (localStorage.getItem('stochastic_boss_' + SKIN_BOSS_MAP[skinId]) === 'true') tryUnlockSkin(skinId);
-                }
-            } catch(e) {}
-        }
+        let _skinUnlockCheckTimer = 0;
+	let _cachedBaseDistance = null;
+	
+	function checkSkinUnlocks() {
+    		if (++_skinUnlockCheckTimer < 20) return;
+    		_skinUnlockCheckTimer = 0;
+    		try {
+        		if (_cachedBaseDistance === null) _cachedBaseDistance = parseInt(localStorage.getItem('stochastic_dist') || '0');
+        		let liveDistance = _cachedBaseDistance + distance;
+        		if (liveDistance >= 15000) tryUnlockSkin('sigma-volatility-core');
+        		if (liveDistance >= 30000) tryUnlockSkin('singularity-process');
+        		if (score >= 100000) tryUnlockSkin('infinite-variance');
+        		if (stats.nearMisses >= 100) tryUnlockSkin('stochastic-ghost');
+        		for (let skinId in SKIN_BOSS_MAP) {
+            			if (localStorage.getItem('stochastic_boss_' + SKIN_BOSS_MAP[skinId]) === 'true') tryUnlockSkin(skinId);
+        		}
+    		} catch(e) {}
+	}
 
         let selectedSkin = 'mu-navigator';
         function isSkinUnlocked(id) {
@@ -607,29 +616,51 @@
             music:          'ost/Stochastic Music.mp3',
             boss:           'ost/Stochastic Boss.mp3'
         };
+
+	const AUDIO_VOLUMES = {
+    		select: 1.0,
+    		enemyFire: 0.4,
+    		lostMartingale: 1.0,
+    		upgrade: 1.0,
+    		point: 0.7,
+    		bigShot: 0.4,
+    		nearMiss: 0.3,
+    		nodes: 1.0,
+    		shieldDestroyed: 1.0,
+    		laser: 0.5,
+    		death: 1.0,
+    		alert: 1.0,
+    		music: 0.8,
+    		boss: 0.9
+	};
         const SFX_POOL_MAX = 4; // lazy ceiling — most sounds never actually need more than 1-2
         const sfxPools = {};
         let musicEl = null, bossMusicEl = null, musicStarted = false, bossMusicActive = false;
         let audioSettings = { volMaster: 80, volMusic: 60, volSfx: 100 };
         let audioPreloadStarted = false;
 
-        function sfxVolume() { return (audioSettings.volMaster/100) * (audioSettings.volSfx/100); }
-        function musicVolume() { return (audioSettings.volMaster/100) * (audioSettings.volMusic/100); }
+	function sfxVolume(key) { 
+    		return AUDIO_VOLUMES[key] !== undefined ? AUDIO_VOLUMES[key] : 1.0; 
+	}
+
+	function musicVolume(key) { 
+    		return AUDIO_VOLUMES[key] !== undefined ? AUDIO_VOLUMES[key] : 1.0;
+	}        
 
         function loadAudioSettings() {
-            try {
-                let saved = JSON.parse(localStorage.getItem('stochastic_settings') || 'null');
-                if (saved) {
-                    if (typeof saved.volMaster === 'number') audioSettings.volMaster = saved.volMaster;
-                    if (typeof saved.volMusic === 'number') audioSettings.volMusic = saved.volMusic;
-                    if (typeof saved.volEffects === 'number') audioSettings.volSfx = saved.volEffects;
-                }
-            } catch(e) {}
-            try {
-                if (musicEl) musicEl.volume = musicVolume();
-                if (bossMusicEl) bossMusicEl.volume = musicVolume();
-            } catch(e) {}
-        }
+    		try {
+        		let saved = JSON.parse(localStorage.getItem('stochastic_settings') || 'null');
+        		if (saved) {
+            		if (typeof saved.volMaster === 'number') audioSettings.volMaster = saved.volMaster;
+            		if (typeof saved.volMusic === 'number') audioSettings.volMusic = saved.volMusic;
+            		if (typeof saved.volEffects === 'number') audioSettings.volSfx = saved.volEffects;
+        		}
+    		} catch(e) {}
+    		try {
+        		if (musicEl) musicEl.volume = musicVolume('music');
+        		if (bossMusicEl) bossMusicEl.volume = musicVolume('boss');
+    		} catch(e) {}
+	}
 
         function makeAudio(src) { let a = new Audio(src); a.preload = 'auto'; return a; }
 
@@ -669,7 +700,7 @@
                     a = entry.pool[entry.idx];
                 }
                 a.pause(); a.currentTime = 0;
-                a.volume = sfxVolume();
+                a.volume = sfxVolume(key);
                 a.play().catch(() => {});
             } catch(e) {}
         }
@@ -692,7 +723,7 @@
             if (musicStarted) return;
             musicStarted = true;
             try {
-                musicEl.volume = musicVolume();
+                musicEl.volume = musicVolume('music');
                 musicEl.play().catch(() => {
                     const resume = () => { musicEl.play().catch(() => {}); };
                     window.addEventListener('click', resume, { once: true });
@@ -708,7 +739,7 @@
                 fadeAudioEl(musicEl, 0, 800, () => { try { musicEl.pause(); } catch(e) {} });
                 bossMusicEl.currentTime = 0; bossMusicEl.volume = 0;
                 bossMusicEl.play().catch(() => {});
-                fadeAudioEl(bossMusicEl, musicVolume(), 800);
+                fadeAudioEl(bossMusicEl, musicVolume('boss'), 800);
             } catch(e) {}
         }
         function endBossMusic() {
@@ -718,7 +749,7 @@
                 fadeAudioEl(bossMusicEl, 0, 1000, () => { try { bossMusicEl.pause(); } catch(e) {} });
                 musicEl.volume = 0;
                 musicEl.play().catch(() => {});
-                fadeAudioEl(musicEl, musicVolume(), 1000);
+                fadeAudioEl(musicEl, musicVolume('music'), 1000);
             } catch(e) {}
         }
 
@@ -788,20 +819,17 @@
         }
 
         // --- UI MOTION & FEEDBACK SYSTEM ---
-        function spawnUIParticles(rect, count, color) {
-	    if (document.querySelectorAll('.ui-particle').length > 30) return;
 
-            for(let i=0; i<count; i++) {
-                let p = document.createElement('div'); p.className = 'ui-particle'; p.style.backgroundColor = color;
-                p.style.width = (Math.random() * 6 + 2) + 'px'; p.style.height = p.style.width;
-                p.style.left = (rect.left + rect.width/2) + 'px'; p.style.top = (rect.top + rect.height/2) + 'px';
-                document.body.appendChild(p);
-                let angle = Math.random() * Math.PI * 2, dist = Math.random() * 100 + 50;
-                let tx = Math.cos(angle) * dist, ty = Math.sin(angle) * dist;
-                p.animate([ { transform: `translate(0, 0) scale(1)`, opacity: 1 }, { transform: `translate(${tx}px, ${ty}px) scale(0)`, opacity: 0 } ], 
-                { duration: Math.random() * 500 + 500, easing: 'cubic-bezier(0.1, 0.9, 0.2, 1)' }).onfinish = () => p.remove();
-            }
-        }
+	let activeUIParticleCount = 0;
+
+	function spawnUIParticles(rect, count, color) {
+    		let centerX = rect.left + rect.width / 2;
+    		let centerY = rect.top + rect.height / 2;
+    
+    		for(let i = 0; i < count; i++) {
+        		spawnParticle(centerX, centerY, color, (Math.random()-0.5)*15, (Math.random()-0.5)*15, Math.random()*3+2, 40);
+    		}
+	}
 
         function unlockAchievement(title, desc, symbol) {
             const container = document.getElementById('achievement-container'); const card = document.createElement('div'); card.className = 'achieve-card';
@@ -811,23 +839,52 @@
             setTimeout(() => { card.classList.remove('show'); setTimeout(() => card.remove(), 600); }, 4000);
         }
 
-        function spawnFloatingText(x, y, text, color) {
-            if (document.querySelectorAll('.floating-text').length > 40) return;
-            const el = document.createElement('div'); el.className = 'floating-text'; el.innerText = text; el.style.color = color;
-            el.style.left = x + 'px'; el.style.top = y + 'px'; document.body.appendChild(el); setTimeout(() => el.remove(), 1000);
-        }
-
+        const _floatingTextPool = [];
+	function spawnFloatingText(x, y, text, color) {
+    		let el = _floatingTextPool.pop();
+    		if (!el) {
+        		el = document.createElement('div');
+        		el.className = 'floating-text';
+        		el.style.animation = 'none'; // motion now comes from .animate() below
+        		document.body.appendChild(el);
+    		}
+    		el.innerText = text;
+    		el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.opacity = 1;
+    		if (color) { el.style.color = color; el.style.textShadow = `0 0 10px ${color}`; }
+    		else { el.style.color = ''; el.style.textShadow = ''; }
+    		el.animate(
+        		[ { transform: 'translateY(0) scale(1)', opacity: 1 },
+          		  { transform: 'translateY(-50px) scale(1.5)', opacity: 0 } ],
+        		{ duration: 1000, easing: 'cubic-bezier(0.1, 0.9, 0.2, 1)' }
+    		).onfinish = () => {
+        		if (_floatingTextPool.length < 40) { el.style.opacity = 0;_floatingTextPool.push(el); }
+        		else el.remove();
+    		};
+	}
+	
+	let _lastNearMissTime = 0;
         function triggerNearMiss() {
-            playSfx('nearMiss');
             stats.nearMisses++;
-            scoreMultiplier = Math.min(scoreMultiplier + 0.5, 5.0);
-            multDisp.innerText = `x${scoreMultiplier.toFixed(1)}`; multDisp.classList.add('active');
-            clearTimeout(window.multTimeout); window.multTimeout = setTimeout(() => { multDisp.classList.remove('active'); scoreMultiplier = 1.0; }, 3000);
-            document.body.classList.add('near-miss'); setTimeout(() => document.body.classList.remove('near-miss'), 150);
-            triggerScreenShake(8);
-            for(let i=0; i<15; i++) spawnParticle(player.x, player.y, envRules.theme.s, (Math.random()-0.5)*20, (Math.random()-0.5)*20, Math.random()*3+1, 30);
-            spawnFloatingText(player.x + 30, player.y - 30, "NEAR MISS!", envRules.theme.s);
-        }
+    	    scoreMultiplier = Math.min(scoreMultiplier + 0.5, 5.0);
+    	    multDisp.innerText = `x${scoreMultiplier.toFixed(1)}`; multDisp.classList.add('active');
+    	    clearTimeout(window.multTimeout); 
+    	    window.multTimeout = setTimeout(() => { multDisp.classList.remove('active'); scoreMultiplier = 1.0; }, 3000);
+
+    	    let now = performance.now();
+    	    if (now - _lastNearMissTime < 100) return; 
+    	    _lastNearMissTime = now;
+
+    	    playSfx('nearMiss');
+    
+    	    document.body.classList.add('near-miss'); 
+    	    clearTimeout(window._nearMissClassTimer);
+    	    window._nearMissClassTimer = setTimeout(() => document.body.classList.remove('near-miss'), 150);
+    
+    	    triggerScreenShake(3);
+    
+    	    for(let i=0; i<15; i++) spawnParticle(player.x, player.y, envRules.theme.s, (Math.random()-0.5)*20, (Math.random()-0.5)*20, Math.random()*3+1, 30);
+    	    spawnFloatingText(player.x + 30, player.y - 30, "NEAR MISS!", envRules.theme.s);
+	}
 
         // --- GLOBAL POPUP QUEUE MANAGER ---
         // Ensures only one major popup is ever visible at a time. Anomaly warnings (system-alert)
@@ -877,15 +934,17 @@
             popContainer.style.display = 'block';
 
             requestAnimationFrame(() => {
-                document.getElementById('popup-title').innerText = next.title;
-                document.getElementById('popup-desc').innerText = next.desc;
-                popContainer.classList.add('visible');
-                popContainer.style.opacity = 1;
+    		document.getElementById('popup-title').innerText = next.title;
+    		document.getElementById('popup-desc').innerText = next.desc;
+    		popContainer.classList.add('visible');
+    		popContainer.style.opacity = 1;
 
-                let rect = popContainer.getBoundingClientRect();
-                spawnUIParticles(rect, 12, envRules.theme.s);
+    		requestAnimationFrame(() => {
+        		let rect = popContainer.getBoundingClientRect();
+        		spawnUIParticles(rect, 12, envRules.theme.s);
+    		});
 
-                window.popupTimers.push(setTimeout(() => {
+    		window.popupTimers.push(setTimeout(() => {
                     popContainer.classList.remove('visible');
                     popContainer.style.opacity = 0;
 
@@ -1088,7 +1147,7 @@
                     
                     if (Math.random() < 0.001 * timeScale) spawnPowerup(false); 
                     
-                    if (Math.random() < 0.002 * timeScale && !inItoRealm && ['standard', 'brownian', 'volatility', 'ito', 'swan'].includes(processType)) spawnPortal();
+                    if (Math.random() < 0.002 * timeScale && !inItoRealm && PERSISTENT_PROCESS_TYPES.has(processType)) spawnPortal();
                 }
 
                 if (this.stormActive && timeScale > 0.1) {
@@ -1360,11 +1419,12 @@
 		}
 		particles.push(p);
 		if (particles.length > 300) {
-		    let removed = particles.splice(0, particles.length - 300);
-		    for (let i=0; i<removed.length; i++) if (_particlePool.length < 300) _particlePool.push(removed[i]);
+    			let evicted = particles[0];
+    			particles[0] = particles[particles.length - 1];
+    			particles.pop();
+    			if (_particlePool.length < 300) _particlePool.push(evicted);
 		}
-		return p; // OPTIMIZATION: exposed so one-off callers (e.g. death-sequence text glyphs)
-		          // can set extra fields on a pooled particle instead of pushing a raw literal.
+		return p;		          
 	}
         
         function triggerScreenShake(amount) { screenShake = amount; }
@@ -1414,16 +1474,17 @@
         // amount toward their current targets. Decoupling these visuals from instant state snaps
         // (sigma spikes, boss color flips, realm toggles) is what keeps the background feeling
         // continuous instead of jerking whenever the underlying game state changes abruptly.
-        function updateAmbientVisuals() {
-            let targetBase = 150 + sigma * 10;
-            const targets = [targetBase, targetBase * 0.6, targetBase * 0.35];
-            const meanVel = [0.018, 0.013, 0.008];
-            for (let i = 0; i < 3; i++) {
-                waveField.vel[i] += (randomNormal() * 0.0006 - (waveField.vel[i] - meanVel[i]) * 0.02) * timeScale;
-                waveField.vel[i] = Math.max(0.004, Math.min(0.035, waveField.vel[i]));
-                waveField.phase[i] += waveField.vel[i] * timeScale;
-                waveField.amp[i] += (targets[i] - waveField.amp[i]) * 0.04 * timeScale;
-            }
+        const _AMBIENT_MEAN_VEL = [0.018, 0.013, 0.008];
+	const _ambientTargetsBuf = [0, 0, 0];
+	function updateAmbientVisuals() {
+    		let targetBase = 150 + sigma * 10;
+    		_ambientTargetsBuf[0] = targetBase; _ambientTargetsBuf[1] = targetBase * 0.6; _ambientTargetsBuf[2] = targetBase * 0.35;
+    		for (let i = 0; i < 3; i++) {
+        		waveField.vel[i] += (randomNormal() * 0.0006 - (waveField.vel[i] - _AMBIENT_MEAN_VEL[i]) * 0.02) * timeScale;
+        		waveField.vel[i] = Math.max(0.004, Math.min(0.035, waveField.vel[i]));
+        		waveField.phase[i] += waveField.vel[i] * timeScale;
+        		waveField.amp[i] += (_ambientTargetsBuf[i] - waveField.amp[i]) * 0.04 * timeScale;
+    	    	}
 
             let targetRGB = hexToRgb(envRules.bgColor);
             bgDisplayRGB.r += (targetRGB.r - bgDisplayRGB.r) * 0.05 * timeScale;
@@ -1437,16 +1498,17 @@
         // --- ITÔ REALM LOGIC ---
         function toggleItoRealm() {
             inItoRealm = !inItoRealm;
-            if(inItoRealm) {
-                queuePopup("ITÔ REALM ENTERED", "Mathematical laws are warping.", POPUP_PRIORITY.TRANSFORM, 2200);
-                envRules.bgColor = '#110022'; envRules.gridColor = 'rgba(255, 215, 0, 0.15)'; envRules.gridWarp = true;
-                document.getElementById('vfx-overlay').style.boxShadow = `inset 0 0 150px rgba(176, 0, 255, 0.2)`;
-            } else {
-                queuePopup("REALITY STABILIZED", "Returning to Euclidean space.", POPUP_PRIORITY.TRANSFORM, 2200);
-                envRules.bgColor = envRules.theme.bg; envRules.gridColor = 'rgba(255,255,255,0.05)'; envRules.gridWarp = false; processType = 'standard';
-                updateEquationHUD(); document.getElementById('vfx-overlay').style.boxShadow = `inset 0 0 0px rgba(176, 0, 255, 0)`;
-            }
-        }
+    	    if(inItoRealm) {
+        	playSfx('upgrade'); // Added missing sound effect here
+        	queuePopup("ITÔ REALM ENTERED", "Mathematical laws are warping.", POPUP_PRIORITY.TRANSFORM, 2200);
+        	envRules.bgColor = '#110022'; envRules.gridColor = 'rgba(255, 215, 0, 0.15)'; envRules.gridWarp = true;
+        	document.getElementById('vfx-overlay').style.boxShadow = `inset 0 0 150px rgba(176, 0, 255, 0.2)`;
+    	   } else {
+        	queuePopup("REALITY STABILIZED", "Returning to Euclidean space.", POPUP_PRIORITY.TRANSFORM, 2200);
+        	envRules.bgColor = envRules.theme.bg; envRules.gridColor = 'rgba(255,255,255,0.05)'; envRules.gridWarp = false; processType = 'standard';
+        	updateEquationHUD(); document.getElementById('vfx-overlay').style.boxShadow = `inset 0 0 0px rgba(176, 0, 255, 0)`;
+    	   }
+	}
         
         function applyTransformation(type) {
             if (activeBoss) return; // Lock transformations from overriding boss equation
@@ -1479,9 +1541,11 @@
         }
 
         function updateEquationHUD() {
-            if (processType === 'standard' || processType === 'magnet') {
-                uiEq.innerHTML = `<span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term"><span class="eq-mu" id="ui-mu">μ</span><span class="eq-st">S<sub>t</sub></span>dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span>`;
-            }
+            uiEq.classList.remove('long-eq');
+    
+    	    if (processType === 'standard' || processType === 'magnet') {
+        	uiEq.innerHTML = `<span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term"><span class="eq-mu" id="ui-mu">μ</span><span class="eq-st">S<sub>t</sub></span>dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span>`;
+    	    }
             else if (processType === 'log') {
                 uiEq.innerHTML = `<span style="color:#ff3366"><span id="term-process" class="eq-term">d(ln S<sub>t</sub>)</span> = <span id="term-drift" class="eq-term">(<span class="eq-mu" id="ui-mu">μ</span> - ½<span class="eq-sigma" id="ui-sigma">σ</span>²)dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span></span>`;
             }
@@ -1507,11 +1571,12 @@
                 uiEq.innerHTML = `<span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="boss-eq-reactive" class="eq-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span>`;
             }
             else if (processType === 'ito') {
-                uiEq.innerHTML = `<span id="term-process" class="eq-term">df</span> = (<span class="eq-term">∂f/∂t</span> + <span class="eq-mu" id="ui-mu">μ</span><span class="eq-term">∂f/∂x</span> + <span id="boss-eq-reactive" class="eq-term">½<span class="eq-sigma" id="ui-sigma">σ</span>²∂²f/∂x²</span>)dt + <span class="eq-sigma" id="ui-sigma-2">σ</span><span class="eq-term">∂f/∂x</span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span>`;
-            }
-            else if (processType === 'swan') {
-                uiEq.innerHTML = `<span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term"><span class="eq-mu" id="ui-mu">μ</span><span class="eq-st">S<sub>t</sub></span>dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span> + <span id="boss-eq-reactive" class="eq-jump" style="color:#ff00ff; text-shadow:0 0 15px #ff00ff;">J<sub>t</sub>dN<sub>t</sub></span>`;
-            }
+        	uiEq.classList.add('long-eq');
+        	uiEq.innerHTML = `<span id="term-process" class="eq-term">df</span> = (<span class="eq-term">∂f/∂t</span> + <span class="eq-mu" id="ui-mu">μ</span><span class="eq-term">∂f/∂x</span> + <span id="boss-eq-reactive" class="eq-term">½<span class="eq-sigma" id="ui-sigma">σ</span>²∂²f/∂x²</span>)dt + <span class="eq-sigma" id="ui-sigma-2">σ</span><span class="eq-term">∂f/∂x</span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span>`;
+    	   }
+    	   else if (processType === 'swan') {
+        	uiEq.innerHTML = `<span id="term-process" class="eq-term">dS<sub>t</sub></span> = <span id="term-drift" class="eq-term"><span class="eq-mu" id="ui-mu">μ</span><span class="eq-st">S<sub>t</sub></span>dt</span> + <span id="term-vol" class="eq-term"><span class="eq-sigma" id="ui-sigma">σ</span><span class="eq-st">S<sub>t</sub></span><span class="eq-dw" id="ui-dw">dW<sub>t</sub></span></span> + <span id="boss-eq-reactive" class="eq-jump" style="color:#ff00ff; text-shadow:0 0 15px #ff00ff;">J<sub>t</sub>dN<sub>t</sub></span>`;
+    	   }
             
             window.uiMu = document.getElementById('ui-mu');
             window.uiSigma = document.getElementById('ui-sigma');
@@ -1529,13 +1594,19 @@
         // boss's signature attack fires, so players subconsciously link the math to the action.
         function pulseBossEquationTerm() {
             let el = document.getElementById('boss-eq-reactive');
-            if (!el) return;
-            el.classList.remove('boss-eq-flash');
-            void el.offsetWidth; // force reflow so the animation can restart on rapid re-triggers
-            el.classList.add('boss-eq-flash');
-            clearTimeout(window._bossEqPulseTimer);
-            window._bossEqPulseTimer = setTimeout(() => el.classList.remove('boss-eq-flash'), 650);
-        }
+    	    if (!el) return;
+    	    el.classList.remove('boss-eq-flash');
+    
+    	// Allow the browser to clear the class naturally, then re-apply it on the next paint cycle
+    	    requestAnimationFrame(() => {
+            	requestAnimationFrame(() => {
+            		el.classList.add('boss-eq-flash');
+        	});
+    	});
+
+    	clearTimeout(window._bossEqPulseTimer);
+    	window._bossEqPulseTimer = setTimeout(() => el.classList.remove('boss-eq-flash'), 650);
+}
 
         // Ensures no powerup/transformation timer UI can ever go stale or get stuck on screen,
         // particularly across boss encounter boundaries where processType is overwritten directly.
@@ -1543,8 +1614,7 @@
             if (!activePowerup || powerupTimer <= 0) {
                 activePowerup = null; powerupTimer = 0; powerupDisplay.style.opacity = 0;
             }
-            const persistentTypes = ['standard', 'brownian', 'volatility', 'ito', 'swan'];
-            if (persistentTypes.includes(processType) || transformTimer <= 0) {
+            if (PERSISTENT_PROCESS_TYPES.has(processType) || transformTimer <= 0) {
                 transformTimer = 0; transformContainer.style.opacity = 0;
             }
         }
@@ -1560,18 +1630,22 @@
             }, 480);
         }
 
-        function updateEquationHighlights() {
-            if(!window.termDrift) return;
-            window.termDrift.className = 'eq-term'; window.termVol.className = 'eq-term'; 
-            if(window.termProcess) window.termProcess.className = 'eq-term';
-            if(window.uiSts) window.uiSts.forEach(el => el.className = 'eq-st');
+        let _lastHighlightSig = null;
+	function updateEquationHighlights() {
+    		if(!window.termDrift) return;
+    		let sig = (player.hasShield?1:0) + ',' + (player.hasRevive?1:0) + ',' + processType;
+    		if (sig === _lastHighlightSig) return;
+    		_lastHighlightSig = sig;
 
-            if (player.hasShield && window.termVol) window.termVol.classList.add('highlight-cyan');
-            if (player.hasRevive && window.uiSts) window.uiSts.forEach(el => el.classList.add('highlight-gold'));
-            if (processType === 'magnet' && window.termDrift) window.termDrift.classList.add('highlight-green');
-            if (processType === 'squared' && window.termProcess) window.termProcess.classList.add('highlight-gold');
-            if (processType === 'log' && window.termProcess) window.termProcess.classList.add('highlight-red');
-        }
+    		window.termDrift.className = 'eq-term'; window.termVol.className = 'eq-term'; 
+    		if(window.termProcess) window.termProcess.className = 'eq-term';
+    		if(window.uiSts) { for (let i = 0; i < window.uiSts.length; i++) window.uiSts[i].className = 'eq-st'; }
+    		if (player.hasShield && window.termVol) window.termVol.classList.add('highlight-cyan');
+    		if (player.hasRevive && window.uiSts) { for (let i = 0; i < window.uiSts.length; i++) window.uiSts[i].classList.add('highlight-gold'); }
+    		if (processType === 'magnet' && window.termDrift) window.termDrift.classList.add('highlight-green');
+    		if (processType === 'squared' && window.termProcess) window.termProcess.classList.add('highlight-gold');
+    		if (processType === 'log' && window.termProcess) window.termProcess.classList.add('highlight-red');
+	}
 
         // --- BOSS ARCHITECTURE & AI ---
         class Boss {
@@ -1638,7 +1712,9 @@
                 for(let n of this.nodes) { n.x += randomNormal() * 5 * timeScale; n.y += randomNormal() * 5 * timeScale; n.x -= n.x * 0.05 * timeScale; n.y -= n.y * 0.05 * timeScale; }
                 if(this.state === 'PHASE1' && Math.floor(this.timer) % 60 === 0 && timeScale > 0.1) {
                     pulseBossEquationTerm(); // chaotic stochastic burst — dWt is actively driving this attack
-                    for(let i=0; i<3; i++) { enemyProjectiles.push({ x: this.x, y: this.y + (Math.random()-0.5)*100, vx: -10, vy: (Math.random()-0.5)*5, radius: 15, color: this.color, type: 'wave' }); playSfx('bigShot'); }
+		    playSfx('bigShot');
+
+                    for(let i=0; i<3; i++) { enemyProjectiles.push({ x: this.x, y: this.y + (Math.random()-0.5)*100, vx: -10, vy: (Math.random()-0.5)*5, radius: 15, color: this.color, type: 'wave' }); }
                 }
             }
             draw(ctx) {
@@ -1691,16 +1767,39 @@
                     playSfx('enemyFire');
                 }
             }
-            draw(ctx) {
-                if(!this.active) return;
-                ctx.save(); ctx.translate(this.x, this.y); ctx.fillStyle = this.color; ctx.font = cvFont(24); ctx.textAlign = "center"; ctx.textBaseline="middle"; ctx.shadowBlur = 15 * PERF_TIERS[perfTier].glowMult; ctx.shadowColor = this.color;
-                let symbols = ['∫', '∂', 'λ', 'Δ', 'dW', 'dt'];
-                for(let j=1; j<=3; j++) {
-                    let r = j * 60;
-                    for(let i=0; i<symbols.length; i++) { let angle = (i/symbols.length) * Math.PI*2 + (this.timer*0.02*(j%2===0?1:-1)); ctx.fillText(symbols[i], Math.cos(angle)*r, Math.sin(angle)*r); }
-                } ctx.font = cvFont(50, 'bold'); ctx.fillStyle = "#fff"; ctx.fillText("I", 0, 0); ctx.restore();
+
+draw(ctx) {
+        if(!this.active) return;
+        ctx.save(); ctx.translate(this.x, this.y); 
+        
+        let orbitFont = cvFont(24);
+        let coreFont = cvFont(50, 'bold');
+        
+        // Draw the 18 orbiting symbols WITHOUT shadow blur (massive FPS saver)
+        ctx.fillStyle = this.color; 
+        ctx.font = orbitFont; 
+        ctx.textAlign = "center"; 
+        ctx.textBaseline = "middle"; 
+        ctx.shadowBlur = 0; 
+        
+        let symbols = ['∫', '∂', 'λ', 'Δ', 'dW', 'dt'];
+        for(let j=1; j<=3; j++) {
+            let r = j * 60;
+            for(let i=0; i<symbols.length; i++) { 
+                let angle = (i/symbols.length) * Math.PI*2 + (this.timer*0.02*(j%2===0?1:-1)); 
+                ctx.fillText(symbols[i], Math.cos(angle)*r, Math.sin(angle)*r); 
             }
-        }
+        } 
+        
+        // Draw the Core "I" WITH the glowing shadow
+        ctx.font = coreFont; 
+        ctx.fillStyle = "#fff"; 
+        ctx.shadowBlur = 15 * PERF_TIERS[perfTier].glowMult; 
+        ctx.shadowColor = this.color;
+        ctx.fillText("I", 0, 0); 
+        ctx.restore();
+    }
+}
 
         class BlackSwan extends Boss {
             constructor() { super({ id: 'swan', name: 'BLACK SWAN', color: '#b000ff' }); this.attackCharge = 0; this.targetY = 0; }
@@ -1745,6 +1844,8 @@
         // --- GAME LOOP LOGIC ---
 	let hasStarted = false, survivalFrames = 0;
 	let driftBucketCounts = { '-5':0,'-4':0,'-3':0,'-2':0,'-1':0,'0':0,'1':0,'2':0,'3':0,'4':0,'5':0 };
+	const STANDARD_MATH_TYPES = new Set(['standard', 'magnet', 'brownian', 'volatility', 'ito', 'swan']);
+	const PERSISTENT_PROCESS_TYPES = new Set(['standard', 'brownian', 'volatility', 'ito', 'swan']);
         function updatePhysics() {
 	    if (!hasStarted && isSpaceDown && !isIntro) { hasStarted = true; startBackgroundMusic(); }
 		
@@ -1761,8 +1862,7 @@
                 driftBucketCounts[String(bucket)] += timeScale;
             }
 
-            let isStandardMath = ['standard', 'magnet', 'brownian', 'volatility', 'ito', 'swan'].includes(processType);
-
+            let isStandardMath = STANDARD_MATH_TYPES.has(processType);
             let smoothDy = 0;
             let processDamageMult = 1.0;
             if (isStandardMath) { smoothDy = mu; } 
@@ -1926,23 +2026,24 @@
                 if (s.x < -300 && obstacles[i]) obstacles.splice(i, 1);
             }
 
-            if(timeScale > 0 && !isDead && !isRecovering) {
-                if (dangerClose) {
-                    dmgOverlay.style.boxShadow = `inset 0 0 ${100 + Math.sin(activeFrameCount*0.2)*50}px var(--accent-red)`;
-                    window._dmgOverlayWasOff = false;
-                } else if (!window._dmgOverlayWasOff) {
-                    dmgOverlay.style.boxShadow = "inset 0 0 0px var(--accent-red)";
-                    window._dmgOverlayWasOff = true;
-                }
-            }
-
             if (playerHit && timeScale > 0 && !isDead && !isRecovering) {
                 if (player.hasShield) {
-                    player.hasShield = false; playSfx('shieldDestroyed'); triggerExplosion(player.x, player.y, '#00f3ff', 40); triggerScreenShake(20);
+                    player.hasShield = false; playSfx('shieldDestroyed'); 
+                    triggerExplosion(player.x, player.y, '#00f3ff', 40); triggerScreenShake(20);
                     queuePopup("BUFFER SHATTERED", "Extreme realization absorbed.", POPUP_PRIORITY.EVENT, 2200);
+                    
+                    // NEW: Flash the red damage overlay for exactly 200ms when the shield breaks
+                    dmgOverlay.style.transition = "none";
+                    dmgOverlay.style.boxShadow = "inset 0 0 150px var(--accent-red)";
+                    dmgOverlay.style.opacity = 1;
+                    setTimeout(() => {
+                        dmgOverlay.style.transition = "box-shadow 0.4s ease, opacity 0.4s ease";
+                        dmgOverlay.style.boxShadow = "inset 0 0 0px var(--accent-red)";
+                    }, 50);
+
                     for(let j=enemyProjectiles.length-1; j>=0; j--) {
                         let ddx = player.x - enemyProjectiles[j].x, ddy = player.y - enemyProjectiles[j].y;
-                        if(ddx*ddx + ddy*ddy < 40000) enemyProjectiles.splice(j, 1); // 200² = 40000
+                        if(ddx*ddx + ddy*ddy < 40000) enemyProjectiles.splice(j, 1); 
                     }
                 } else if (player.hasRevive) {
                     console.log("[DEBUG] Martingale consumed.");
@@ -2029,7 +2130,7 @@
             }
 
             // Process Transformation Timer
-            if (!['standard', 'brownian', 'volatility', 'ito', 'swan'].includes(processType)) {
+            if (!PERSISTENT_PROCESS_TYPES.has(processType)) {
                 transformTimer -= timeScale;
 		let tPercent = (transformTimer / transformMax * 100).toFixed(1) + '%';
                 		if (window.lastTPercent !== tPercent) {
@@ -2123,10 +2224,12 @@
             }
             
             if (score - lastMilestone >= 5000) {
-                lastMilestone = score; uiScore.classList.add('milestone');
-                spawnUIParticles(uiScore.getBoundingClientRect(), 10, 'var(--accent-gold)');
-                setTimeout(() => uiScore.classList.remove('milestone'), 300);
-            }
+    		lastMilestone = score;
+    		let rect = uiScore.getBoundingClientRect();
+    		uiScore.classList.add('milestone');
+    		spawnUIParticles(rect, 10, 'var(--accent-gold)');
+    		setTimeout(() => uiScore.classList.remove('milestone'), 300);
+	    }
 	   
             let distStr = distance + "m";
             if (window.lastDistStr !== distStr) { uiDist.innerText = distStr; window.lastDistStr = distStr; }
@@ -2442,6 +2545,7 @@
         // Renders the player's ship using whichever skin is currently equipped (see SKIN_DEFS above).
         // Every shape uses the exact same (player.x, player.y, ps) footprint, so collision is never affected.
         function drawPlayerShip(ctx, ps) {
+	    const PENTAGON_CRYSTAL_OUTER = [[0,-45],[30,-15],[18,40],[-18,40],[-30,-15]];
             const def = SKIN_DEFS[selectedSkin] || SKIN_DEFS['mu-navigator'];
             const cx = player.x, cy = player.y;
             // OPTIMIZATION: this shadowBlur applies to the player ship, which is drawn on essentially
@@ -2453,16 +2557,16 @@
                 case 'pentagon-crystal': {
                     // Matches .art-portal's sibling design used for σ Volatility Core: an outer + inner
                     // irregular pentagon, both rotating together, with the σ glyph held static on top.
-                    const outer = [[0,-45],[30,-15],[18,40],[-18,40],[-30,-15]];
+		    const outer = PENTAGON_CRYSTAL_OUTER;
                     const s = ps / 45;
                     ctx.save(); ctx.translate(cx, cy); ctx.rotate(activeFrameCount * 0.02);
                     ctx.beginPath();
-                    outer.forEach((p, i) => { let x = p[0]*s, y = p[1]*s; if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+		    for (let i = 0; i < outer.length; i++) { let x = outer[i][0]*s, y = outer[i][1]*s; if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
                     ctx.closePath();
                     ctx.fillStyle = 'rgba(0,243,255,0.15)'; ctx.fill();
                     ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.stroke();
                     ctx.beginPath();
-                    outer.forEach((p, i) => { let x = p[0]*s*0.56, y = p[1]*s*0.56; if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+		    for (let i = 0; i < outer.length; i++) { let x = outer[i][0]*s*0.56, y = outer[i][1]*s*0.56; if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
                     ctx.closePath();
                     ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fill();
                     ctx.strokeStyle = def.color; ctx.lineWidth = 1; ctx.stroke();
